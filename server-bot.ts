@@ -1,0 +1,1376 @@
+import WebSocket from "ws";
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+import {
+  BotConfig,
+  BotState,
+  SymbolState,
+  TradeLog,
+  ToastMessage,
+  SessionStats
+} from "./src/types";
+
+const SYMBOLS = [
+  { symbol: "R_10", name: "Volatility 10" },
+  { symbol: "R_25", name: "Volatility 25" },
+  { symbol: "R_50", name: "Volatility 50" },
+  { symbol: "R_75", name: "Volatility 75" },
+  { symbol: "R_100", name: "Volatility 100" },
+  { symbol: "1HZ10V", name: "Volatility 10 (1s)" },
+  { symbol: "1HZ15V", name: "Volatility 15 (1s)" },
+  { symbol: "1HZ25V", name: "Volatility 25 (1s)" },
+  { symbol: "1HZ30V", name: "Volatility 30 (1s)" },
+  { symbol: "1HZ50V", name: "Volatility 50 (1s)" },
+  { symbol: "1HZ75V", name: "Volatility 75 (1s)" },
+  { symbol: "1HZ90V", name: "Volatility 90 (1s)" },
+  { symbol: "1HZ100V", name: "Volatility 100 (1s)" }
+];
+
+const CONFIG_FILE = path.join(process.cwd(), "bot-config-store.json");
+const LOGS_FILE = path.join(process.cwd(), "bot-logs-store.json");
+const USERS_FILE = path.join(process.cwd(), "bot-users-store.json");
+
+const DEFAULT_CONFIG: BotConfig = {
+  stakeAmount: 2.0,
+  referenceDigit: 7,
+  analysisTickCount: 120,
+  minUnderPercentage: 65,
+  confirmationRequired: 2,
+  tradeSequenceCount: 3,
+  stopLoss: 4.0,
+  takeProfit: 6.0,
+  maxDailyTrades: 50,
+  selectedSymbol: "1HZ100V",
+  mode: "Standard",
+  appId: "1089",
+  apiToken: "",
+  demoMode: true,
+  demoBalance: 10000.00
+};
+
+class ServerBot {
+  private config: BotConfig = { ...DEFAULT_CONFIG };
+  private botState: BotState = "STATE_IDLE";
+  private activeSymbol: string | null = null;
+  private balance: string | null = null;
+  private accountEmail: string | null = null;
+  private isRealAccount: boolean = false;
+  private currentUserEmail: string | null = null;
+
+  private sessionProfit: number = 0;
+  private dailyTradesCount: number = 0;
+  private consecutiveLosses: number = 0;
+  private accumulatedLoss: number = 0;
+  private multiplier: number = 1;
+  private inRecovery: boolean = false;
+  private sequenceDone: number = 0;
+  private awaitingSettlement: boolean = false;
+  private connectionStatus: "disconnected" | "connecting" | "connected" = "disconnected";
+  private reconnectCountdown: number | null = null;
+
+  private symbolStates: Record<string, SymbolState> = {};
+  private tradeLogs: TradeLog[] = [];
+  private sessionStats: SessionStats | null = null;
+  private showSummary: boolean = false;
+
+  // Real-time server-side toasts queue
+  private toasts: ToastMessage[] = [];
+
+  // WebSocket reference
+  private ws: WebSocket | null = null;
+  private reconnectInterval: NodeJS.Timeout | null = null;
+  private silenceCheckInterval: NodeJS.Timeout | null = null;
+
+  // Trade tracking refs equivalent
+  private pendingRealContract: { id: number | string; symbol: string; stake: number; seq: number } | null = null;
+  private pendingVirtualContract: { symbol: string; stake: number; barrier: number; multiplier: number; seq: number; timestamp: string } | null = null;
+
+  // Streak/Perf Trackers
+  private currentStreak: number = 0;
+  private bestStreak: number = 0;
+  private peakProfit: number = 0;
+  private worstDrawdown: number = 0;
+
+  constructor() {
+    this.ensureUsersFileExists();
+    this.loadPersistence();
+    this.initializeSymbolStates();
+    this.startSilenceMonitor();
+    
+    // Pre-populate initial balance representation if using demo/simulated mode
+    if (this.config.demoMode || !this.config.apiToken) {
+      this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+      this.accountEmail = "demo.testing@deriv.com";
+      this.isRealAccount = false;
+    }
+  }
+
+  private loadPersistence() {
+    if (this.currentUserEmail) {
+      const users = this.loadUsers();
+      const emailKey = this.currentUserEmail.toLowerCase();
+      const user = users[emailKey];
+      if (user) {
+        this.config = { ...DEFAULT_CONFIG, ...user.config };
+        this.tradeLogs = user.tradeLogs || [];
+      }
+      return;
+    }
+
+    try {
+      if (fs.existsSync(CONFIG_FILE)) {
+        const raw = fs.readFileSync(CONFIG_FILE, "utf-8").trim();
+        if (raw) {
+          this.config = { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+        } else {
+          this.saveConfigPersistence();
+        }
+      }
+    } catch (e) {
+      console.error("Error loading bot-config-store", e);
+      try { this.saveConfigPersistence(); } catch (err) {}
+    }
+
+    try {
+      if (fs.existsSync(LOGS_FILE)) {
+        const raw = fs.readFileSync(LOGS_FILE, "utf-8").trim();
+        if (raw) {
+          this.tradeLogs = JSON.parse(raw).slice(0, 200);
+        } else {
+          this.saveLogsPersistence();
+        }
+      }
+    } catch (e) {
+      console.error("Error loading bot-logs-store", e);
+      try { this.saveLogsPersistence(); } catch (err) {}
+    }
+  }
+
+  private saveConfigPersistence() {
+    if (this.currentUserEmail) {
+      const users = this.loadUsers();
+      const emailKey = this.currentUserEmail.toLowerCase();
+      if (users[emailKey]) {
+        users[emailKey].config = this.config;
+        this.saveUsers(users);
+      }
+      return;
+    }
+
+    try {
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error saving config persistence", e);
+    }
+  }
+
+  private saveLogsPersistence() {
+    if (this.currentUserEmail) {
+      const users = this.loadUsers();
+      const emailKey = this.currentUserEmail.toLowerCase();
+      if (users[emailKey]) {
+        users[emailKey].tradeLogs = this.tradeLogs;
+        this.saveUsers(users);
+      }
+      return;
+    }
+
+    try {
+      fs.writeFileSync(LOGS_FILE, JSON.stringify(this.tradeLogs, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error saving trade logs persistence", e);
+    }
+  }
+
+  private ensureUsersFileExists() {
+    let existsAndNotEmpty = false;
+    try {
+      if (fs.existsSync(USERS_FILE)) {
+        const stats = fs.statSync(USERS_FILE);
+        if (stats.size > 0) {
+          existsAndNotEmpty = true;
+        }
+      }
+    } catch (e) {}
+
+    if (!existsAndNotEmpty) {
+      try {
+        fs.writeFileSync(USERS_FILE, JSON.stringify({ users: {} }, null, 2), "utf-8");
+      } catch (e) {
+        console.error("Error generating initial users file", e);
+      }
+    }
+  }
+
+  private loadUsers(): Record<string, any> {
+    this.ensureUsersFileExists();
+    try {
+      const data = fs.readFileSync(USERS_FILE, "utf-8").trim();
+      if (!data) {
+        return {};
+      }
+      return JSON.parse(data).users || {};
+    } catch (e) {
+      console.error("Error reading users database", e);
+      try { this.saveUsers({}); } catch (err) {}
+      return {};
+    }
+  }
+
+  private saveUsers(users: Record<string, any>) {
+    try {
+      fs.writeFileSync(USERS_FILE, JSON.stringify({ users }, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error writing users database", e);
+    }
+  }
+
+  public async loginWithToken(token: string): Promise<{ success: boolean; error?: string; email?: string }> {
+    if (!token || token.trim() === "") {
+      return { success: false, error: "Please enter a valid Deriv API Token." };
+    }
+    
+    // Connect and authorize WebSocket temporarily to verify and retrieve email
+    return new Promise((resolve) => {
+      const url = `wss://ws.binaryws.com/websockets/v3?app_id=${this.config.appId || 1089}`;
+      const tempWs = new WebSocket(url);
+      let resolved = false;
+
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          try {
+            tempWs.removeAllListeners();
+            tempWs.on("error", () => {});
+            tempWs.close();
+          } catch (e){}
+          resolve({ success: false, error: "Authentication timed out. Please verify your connection status and token." });
+        }
+      }, 8000);
+
+      tempWs.on("open", () => {
+        try {
+          tempWs.send(JSON.stringify({ authorize: token.trim() }));
+        } catch (e) {}
+      });
+
+      tempWs.on("message", (raw: string) => {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed.msg_type === "authorize") {
+            if (parsed.error) {
+              resolved = true;
+              clearTimeout(timeoutId);
+              try {
+                tempWs.removeAllListeners();
+                tempWs.on("error", () => {});
+                tempWs.close();
+              } catch (e){}
+              resolve({ success: false, error: parsed.error.message || "Invalid API token. Try again." });
+            } else {
+              resolved = true;
+              clearTimeout(timeoutId);
+              try {
+                tempWs.removeAllListeners();
+                tempWs.on("error", () => {});
+                tempWs.close();
+              } catch (e){}
+              
+              const auth = parsed.authorize;
+              const email = auth.email;
+              
+              // Proceed with local login setup
+              this.completeTokenLogin(email, token.trim());
+              
+              resolve({ success: true, email });
+            }
+          }
+        } catch (e) {
+          // Ignore
+        }
+      });
+
+      tempWs.on("error", (err: any) => {
+        const errMsg = err?.message || String(err);
+        if (errMsg.includes("closed before the connection")) {
+          return;
+        }
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeoutId);
+          try {
+            tempWs.removeAllListeners();
+            tempWs.on("error", () => {});
+            tempWs.close();
+          } catch (e){}
+          resolve({ success: false, error: "WebSocket connection error prior to authorization. Check Deriv services status." });
+        }
+      });
+    });
+  }
+
+  private completeTokenLogin(email: string, apiToken: string) {
+    if (this.botState !== "STATE_IDLE" && this.botState !== "STATE_STOPPED") {
+      this.haltBot("User context switched via Token Login");
+    }
+
+    const emailKey = email.toLowerCase().trim();
+    const users = this.loadUsers();
+    
+    let user = users[emailKey];
+    if (!user) {
+      user = {
+        email: emailKey,
+        derivToken: apiToken,
+        config: {
+          ...DEFAULT_CONFIG,
+          apiToken: apiToken,
+          demoMode: false
+        },
+        tradeLogs: []
+      };
+      users[emailKey] = user;
+    } else {
+      user.derivToken = apiToken;
+      user.config = {
+        ...DEFAULT_CONFIG,
+        ...user.config,
+        apiToken: apiToken,
+        demoMode: false
+      };
+    }
+    this.saveUsers(users);
+
+    this.currentUserEmail = user.email;
+    this.config = user.config;
+    this.tradeLogs = user.tradeLogs || [];
+
+    // Reset session aggregates
+    this.sessionProfit = 0;
+    this.dailyTradesCount = 0;
+    this.consecutiveLosses = 0;
+    this.accumulatedLoss = 0;
+    this.multiplier = 1;
+    this.inRecovery = false;
+    this.sequenceDone = 0;
+    this.awaitingSettlement = false;
+    this.currentStreak = 0;
+    this.bestStreak = 0;
+    this.peakProfit = 0;
+    this.worstDrawdown = 0;
+    this.pendingRealContract = null;
+    this.pendingVirtualContract = null;
+    this.showSummary = false;
+    this.sessionStats = null;
+
+    this.balance = null;
+    this.accountEmail = null;
+    this.isRealAccount = false;
+
+    this.showToast(`Logged in successfully: ${email}`, "green");
+    this.connectWebSocket();
+  }
+
+  public logout() {
+    if (this.botState !== "STATE_IDLE" && this.botState !== "STATE_STOPPED") {
+      this.haltBot("Active trading stopped due to user logout.");
+    }
+    this.currentUserEmail = null;
+    this.config = { ...DEFAULT_CONFIG };
+    this.tradeLogs = [];
+
+    this.sessionProfit = 0;
+    this.dailyTradesCount = 0;
+    this.consecutiveLosses = 0;
+    this.accumulatedLoss = 0;
+    this.multiplier = 1;
+    this.inRecovery = false;
+    this.sequenceDone = 0;
+    this.awaitingSettlement = false;
+    this.currentStreak = 0;
+    this.bestStreak = 0;
+    this.peakProfit = 0;
+    this.worstDrawdown = 0;
+    this.pendingRealContract = null;
+    this.pendingVirtualContract = null;
+    this.showSummary = false;
+    this.sessionStats = null;
+
+    this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+    this.accountEmail = "demo.testing@deriv.com";
+    this.isRealAccount = false;
+
+    this.showToast("Logged out of the account successfully", "grey");
+    this.connectWebSocket();
+    return { success: true };
+  }
+
+  private initializeSymbolStates() {
+    const initialStates: Record<string, SymbolState> = {};
+    SYMBOLS.forEach(({ symbol, name }) => {
+      initialStates[symbol] = {
+        symbol,
+        displayName: name,
+        buffer: [],
+        underPct: 0,
+        overPct: 0,
+        signalStrength: "SCANNING...",
+        confirmationCounter: 0,
+        digitFreq: Array.from({ length: 10 }, (_, i) => i).reduce((acc, d) => ({ ...acc, [d]: 0 }), {}),
+        digitPct: Array.from({ length: 10 }, (_, i) => i).reduce((acc, d) => ({ ...acc, [d]: 0 }), {}),
+        lastDigit: null,
+        qualified: false,
+        tickCount: 0,
+        lastTickTime: 0,
+        isClosed: false
+      };
+    });
+    this.symbolStates = initialStates;
+  }
+
+  public getFullState() {
+    return {
+      config: this.config,
+      botState: this.botState,
+      activeSymbol: this.activeSymbol,
+      balance: this.balance,
+      accountEmail: this.accountEmail,
+      isRealAccount: this.isRealAccount,
+      sessionProfit: this.sessionProfit,
+      dailyTradesCount: this.dailyTradesCount,
+      consecutiveLosses: this.consecutiveLosses,
+      multiplier: this.multiplier,
+      inRecovery: this.inRecovery,
+      sequenceDone: this.sequenceDone,
+      awaitingSettlement: this.awaitingSettlement,
+      connectionStatus: this.connectionStatus,
+      reconnectCountdown: this.reconnectCountdown,
+      symbolStates: this.symbolStates,
+      tradeLogs: this.tradeLogs,
+      sessionStats: this.sessionStats,
+      showSummary: this.showSummary,
+      currentUserEmail: this.currentUserEmail
+    };
+  }
+
+  // Get and consumption of toasts (once fetched, server clears to avoid duplicates)
+  public flushToasts(): ToastMessage[] {
+    const current = [...this.toasts];
+    this.toasts = [];
+    return current;
+  }
+
+  private showToast(message: string, type: ToastMessage["type"], dismissible = true) {
+    const id = Math.random().toString(36).substring(2, 9);
+    console.log(`[BOT TOAST - ${type.toUpperCase()}]: ${message}`);
+    this.toasts.push({
+      id,
+      type,
+      message,
+      dismissible,
+      timestamp: Date.now()
+    });
+  }
+
+  public updateConfig(newConfig: Partial<BotConfig>) {
+    this.config = { ...this.config, ...newConfig };
+    this.saveConfigPersistence();
+    this.showToast("Configuration parameters updated.", "blue");
+  }
+
+  public clearLogs() {
+    this.tradeLogs = [];
+    this.saveLogsPersistence();
+    this.showToast("Local transaction logs cleared.", "grey");
+  }
+
+  public dismissSummary() {
+    this.showSummary = false;
+  }
+
+  public startBot() {
+    if (this.config.stakeAmount <= 0) {
+      this.showToast("Stake amount must be greater than 0.", "red");
+      return;
+    }
+
+    // Reset session parameters
+    this.sessionProfit = 0;
+    this.dailyTradesCount = 0;
+    this.consecutiveLosses = 0;
+    this.accumulatedLoss = 0;
+    this.multiplier = 1;
+    this.inRecovery = false;
+    this.sequenceDone = 0;
+    this.awaitingSettlement = false;
+    this.currentStreak = 0;
+    this.bestStreak = 0;
+    this.peakProfit = 0;
+    this.worstDrawdown = 0;
+    this.pendingRealContract = null;
+    this.pendingVirtualContract = null;
+    this.showSummary = false;
+    this.sessionStats = null;
+
+    this.showToast("Starting Automated Trading Session...", "green");
+    
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.connectWebSocket();
+    } else {
+      // If we are already connected, we can instantly switch to STATE_SCANNING since history has already loaded
+      this.botState = "STATE_SCANNING";
+      this.checkAndSwitchSymbol();
+    }
+  }
+
+  public stopBot() {
+    this.haltBot("Manually deactivated by user");
+  }
+
+  private connectWebSocket() {
+    if (this.ws) {
+      try {
+        this.ws.removeAllListeners();
+        this.ws.on("error", () => {});
+        this.ws.close();
+      } catch (e) {}
+      this.ws = null;
+    }
+
+    this.connectionStatus = "connecting";
+    if (this.botState !== "STATE_IDLE" && this.botState !== "STATE_STOPPED") {
+      this.botState = "STATE_CONNECTING";
+    }
+    this.reconnectCountdown = null;
+
+    const url = `wss://ws.binaryws.com/websockets/v3?app_id=${this.config.appId}`;
+    console.log(`Bot connecting to: ${url}`);
+    
+    const wsClient = new WebSocket(url);
+    this.ws = wsClient;
+
+    wsClient.on("open", () => {
+      this.connectionStatus = "connected";
+      this.initializeSymbolStates();
+      this.showToast("WebSocket Connection Opened", "blue");
+
+      const token = this.config.apiToken;
+      if (token && token.trim() !== "") {
+        console.log("Sending authorization...");
+        wsClient.send(JSON.stringify({ authorize: token.trim() }));
+      } else {
+        this.isRealAccount = false;
+        this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+        this.accountEmail = "demo.testing@deriv.com";
+        this.subscribeToSymbols();
+      }
+    });
+
+    wsClient.on("message", (raw: string) => {
+      try {
+        const parsed = JSON.parse(raw);
+        this.handleWsMessage(parsed);
+      } catch (e) {
+        console.error("Error parsing WS packet", e);
+      }
+    });
+
+    wsClient.on("error", (err: any) => {
+      const errMsg = err?.message || String(err);
+      if (
+        errMsg.includes("closed before the connection") ||
+        errMsg.includes("ECONNRESET") ||
+        errMsg.includes("aborted")
+      ) {
+        console.log(`Websocket idle/close message ignored: ${errMsg}`);
+        return;
+      }
+      console.error("Broker WebSocket Error:", err);
+      this.connectionStatus = "disconnected";
+      this.showToast("Websocket communication link error", "red");
+    });
+
+    wsClient.on("close", () => {
+      this.connectionStatus = "disconnected";
+      
+      const isStillActive = this.botState !== "STATE_IDLE" && this.botState !== "STATE_STOPPED";
+      if (isStillActive) {
+        this.botState = "STATE_CONNECTING";
+        let count = 5;
+        this.reconnectCountdown = count;
+
+        if (this.reconnectInterval) clearInterval(this.reconnectInterval);
+        this.reconnectInterval = setInterval(() => {
+          count -= 1;
+          this.reconnectCountdown = count;
+          if (count <= 0) {
+            if (this.reconnectInterval) clearInterval(this.reconnectInterval);
+            this.reconnectCountdown = null;
+            this.connectWebSocket();
+          }
+        }, 1000);
+      } else {
+        // Keep reconnect active so that background tick scan remains alive even spent or idle!
+        let count = 10;
+        this.reconnectCountdown = count;
+
+        if (this.reconnectInterval) clearInterval(this.reconnectInterval);
+        this.reconnectInterval = setInterval(() => {
+          count -= 1;
+          this.reconnectCountdown = count;
+          if (count <= 0) {
+            if (this.reconnectInterval) clearInterval(this.reconnectInterval);
+            this.reconnectCountdown = null;
+            this.connectWebSocket();
+          }
+        }, 1000);
+      }
+    });
+  }
+
+  private subscribeToSymbols() {
+    this.showToast("Initiating rapid historical scans...", "blue");
+
+    SYMBOLS.forEach(({ symbol }) => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          ticks_history: symbol,
+          adjust_start_time: 1,
+          count: this.config.analysisTickCount,
+          end: "latest",
+          style: "ticks",
+          subscribe: 1
+        }));
+      }
+    });
+  }
+
+  private handleWsMessage(data: any) {
+    if (data.msg_type === "authorize") {
+      if (data.error) {
+        this.showToast(`Auth Failed: ${data.error.message}`, "red");
+        this.haltBot(`Authorization Error: ${data.error.message}`);
+        return;
+      }
+      const auth = data.authorize;
+      this.isRealAccount = !auth.is_virtual;
+      if (auth.balance !== undefined && auth.balance !== null) {
+        const parsedBal = Number(auth.balance);
+        if (!isNaN(parsedBal)) {
+          this.balance = parsedBal.toFixed(2);
+        } else {
+          this.balance = this.balance || "10000.00";
+        }
+      } else {
+        this.balance = this.balance || "10000.00";
+      }
+      this.accountEmail = auth.email;
+      this.showToast(`User Authorized: ${auth.email} (${auth.is_virtual ? "Demo Sandbox" : "Real Account"})`, "green");
+      if (this.ws && this.ws.readyState === 1) { // 1 is OPEN
+        try {
+          this.ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+        } catch (e) {}
+      }
+      this.subscribeToSymbols();
+    }
+
+    else if (data.msg_type === "balance" && data.balance) {
+      if (data.balance.balance !== undefined && data.balance.balance !== null) {
+        const parsedBal = Number(data.balance.balance);
+        if (!isNaN(parsedBal)) {
+          this.balance = parsedBal.toFixed(2);
+        }
+      }
+    }
+
+    else if (data.msg_type === "tick" && data.tick) {
+      this.handleIncomingTick(data.tick);
+    }
+
+    else if (data.msg_type === "history" && data.history) {
+      this.handleHistoryResponse(data);
+    }
+
+    else if (data.msg_type === "buy") {
+      if (data.error) {
+        this.showToast(`Trade Blocked: ${data.error.message}. Restarting state...`, "red");
+        this.pendingRealContract = null;
+        this.awaitingSettlement = false;
+        return;
+      }
+      const buy = data.buy;
+      if (buy && buy.balance_after !== undefined && buy.balance_after !== null) {
+        const parsedBal = Number(buy.balance_after);
+        if (!isNaN(parsedBal)) {
+          this.balance = parsedBal.toFixed(2);
+        }
+      }
+      
+      if (this.pendingRealContract) {
+        this.pendingRealContract.id = buy.contract_id;
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ proposal_open_contract: 1, contract_id: buy.contract_id, subscribe: 1 }));
+        }
+      }
+    }
+
+    else if (data.msg_type === "proposal_open_contract" && data.proposal_open_contract) {
+      const poc = data.proposal_open_contract;
+      if (poc.is_sold) {
+        this.handleRealContractSettled(poc);
+        
+        if (this.ws && this.ws.readyState === WebSocket.OPEN && poc.subscription) {
+          this.ws.send(JSON.stringify({ forget: poc.subscription.id }));
+        }
+      }
+    }
+
+    else if (data.error) {
+      console.warn("Client WS Error payload returned: ", data.error);
+    }
+  }
+
+  private handleHistoryResponse(data: any) {
+    const symbol = data.echo_req?.ticks_history;
+    if (!symbol) return;
+
+    const sState = this.symbolStates[symbol];
+    if (!sState) return;
+
+    const prices = data.history?.prices;
+    if (!prices || !Array.isArray(prices)) return;
+
+    const digitsBuf: number[] = [];
+    prices.forEach((price: any) => {
+      const priceStr = String(price);
+      const lastDigit = parseInt(priceStr.charAt(priceStr.length - 1));
+      if (!isNaN(lastDigit)) {
+        digitsBuf.push(lastDigit);
+      }
+    });
+
+    const maxCapacity = this.config.analysisTickCount;
+    const finalBuffer = digitsBuf.slice(-maxCapacity);
+    const bufferLength = finalBuffer.length;
+    const underBarrier = this.config.referenceDigit;
+
+    // Freq
+    const digitCounts: Record<number, number> = Array.from({ length: 10 }, (_, i) => i).reduce((acc, d) => ({ ...acc, [d]: 0 }), {});
+    finalBuffer.forEach(d => {
+      digitCounts[d] = (digitCounts[d] || 0) + 1;
+    });
+
+    const digitPercentages: Record<number, number> = {};
+    for (let d = 0; d < 10; d++) {
+      digitPercentages[d] = bufferLength > 0 ? Number(((digitCounts[d] / bufferLength) * 100).toFixed(1)) : 0;
+    }
+
+    const underCount = finalBuffer.filter(d => d < underBarrier).length;
+    const overCount = finalBuffer.filter(d => d > underBarrier).length;
+    const underPct = bufferLength > 0 ? Number(((underCount / bufferLength) * 100).toFixed(1)) : 0;
+    const overPct = bufferLength > 0 ? Number(((overCount / bufferLength) * 100).toFixed(1)) : 0;
+
+    let strength: SymbolState["signalStrength"] = "SCANNING...";
+    if (underPct >= 80) strength = "VERY STRONG";
+    else if (underPct >= 75) strength = "STRONG";
+    else if (underPct >= 70) strength = "MODERATE";
+    else if (underPct >= 65) strength = "WEAK";
+
+    const isQualified = underPct >= this.config.minUnderPercentage && bufferLength >= maxCapacity;
+
+    this.symbolStates[symbol] = {
+      ...sState,
+      buffer: finalBuffer,
+      underPct,
+      overPct,
+      signalStrength: strength,
+      digitFreq: digitCounts,
+      digitPct: digitPercentages,
+      lastDigit: finalBuffer.length > 0 ? finalBuffer[finalBuffer.length - 1] : null,
+      qualified: isQualified,
+      tickCount: finalBuffer.length,
+      lastTickTime: Date.now(),
+      isClosed: false
+    };
+
+    // If warming up or connecting, check if we preloaded enough so we can activate immediately
+    if (this.botState === "STATE_WARMING_UP" || this.botState === "STATE_CONNECTING") {
+      const readyMarkets = Object.values(this.symbolStates).filter(
+        s => s.buffer.length >= this.config.analysisTickCount
+      ).length;
+      
+      if (readyMarkets >= 5) {
+        this.botState = "STATE_SCANNING";
+        this.showToast("Historical scanners preloaded. Broker signal lines open.", "green");
+        this.checkAndSwitchSymbol();
+      }
+    }
+  }
+
+  private handleIncomingTick(tick: any) {
+    const symbol = tick.symbol;
+    const sState = this.symbolStates[symbol];
+    if (!sState) return;
+
+    const quoteStr = String(tick.quote);
+    const lastDigit = parseInt(quoteStr.charAt(quoteStr.length - 1));
+    if (isNaN(lastDigit)) return;
+
+    const updatedBuffer = [...sState.buffer, lastDigit];
+    const maxCapacity = this.config.analysisTickCount;
+    if (updatedBuffer.length > maxCapacity) {
+      updatedBuffer.shift();
+    }
+
+    const bufferLength = updatedBuffer.length;
+    const underBarrier = this.config.referenceDigit;
+
+    // Freq
+    const digitCounts: Record<number, number> = Array.from({ length: 10 }, (_, i) => i).reduce((acc, d) => ({ ...acc, [d]: 0 }), {});
+    updatedBuffer.forEach(d => {
+      digitCounts[d] = (digitCounts[d] || 0) + 1;
+    });
+
+    const digitPercentages: Record<number, number> = {};
+    for (let d = 0; d < 10; d++) {
+      digitPercentages[d] = bufferLength > 0 ? Number(((digitCounts[d] / bufferLength) * 100).toFixed(1)) : 0;
+    }
+
+    const underCount = updatedBuffer.filter(d => d < underBarrier).length;
+    const overCount = updatedBuffer.filter(d => d > underBarrier).length;
+    const underPct = bufferLength > 0 ? Number(((underCount / bufferLength) * 100).toFixed(1)) : 0;
+    const overPct = bufferLength > 0 ? Number(((overCount / bufferLength) * 100).toFixed(1)) : 0;
+
+    let strength: SymbolState["signalStrength"] = "SCANNING...";
+    if (underPct >= 80) strength = "VERY STRONG";
+    else if (underPct >= 75) strength = "STRONG";
+    else if (underPct >= 70) strength = "MODERATE";
+    else if (underPct >= 65) strength = "WEAK";
+
+    const isQualified = underPct >= this.config.minUnderPercentage && bufferLength >= maxCapacity;
+
+    const updatedState: SymbolState = {
+      ...sState,
+      buffer: updatedBuffer,
+      underPct,
+      overPct,
+      signalStrength: strength,
+      digitFreq: digitCounts,
+      digitPct: digitPercentages,
+      lastDigit,
+      qualified: isQualified,
+      tickCount: sState.tickCount + 1,
+      lastTickTime: Date.now(),
+      isClosed: false
+    };
+
+    this.symbolStates[symbol] = updatedState;
+
+    this.processTradingMachine(symbol, updatedState);
+  }
+
+  private processTradingMachine(symbol: string, symbolStateData: SymbolState) {
+    if (this.botState === "STATE_WARMING_UP") {
+      const readyMarkets = Object.values(this.symbolStates).filter(
+        s => s.buffer.length >= this.config.analysisTickCount
+      ).length;
+      
+      if (readyMarkets >= 5) {
+        this.botState = "STATE_SCANNING";
+        this.showToast("Scanning warmups ended. Broker signal lines open.", "blue");
+        this.checkAndSwitchSymbol();
+      }
+      return;
+    }
+
+    if (this.botState === "STATE_IDLE" || this.botState === "STATE_STOPPED") return;
+
+    if (this.awaitingSettlement && this.pendingVirtualContract && this.pendingVirtualContract.symbol === symbol) {
+      this.handleVirtualContractSettled(symbolStateData.lastDigit!);
+      return;
+    }
+
+    if (this.botState === "STATE_SCANNING" || this.botState === "STATE_CONFIRMING") {
+      this.checkAndSwitchSymbol();
+    }
+
+    // Confirmation tracking state
+    if (this.activeSymbol === symbol) {
+      const currentActive = this.symbolStates[symbol];
+      if (!currentActive) return;
+
+      if (this.botState === "STATE_CONFIRMING") {
+        if (currentActive.underPct >= this.config.minUnderPercentage) {
+          const digit = currentActive.lastDigit;
+          if (digit !== null) {
+            if (digit >= this.config.referenceDigit) {
+              const prevConf = currentActive.confirmationCounter;
+              const nextConf = prevConf + 1;
+              
+              currentActive.confirmationCounter = nextConf;
+              this.showToast(`Confirmation key ${digit} received (${nextConf}/${this.config.confirmationRequired})`, "orange");
+
+              if (nextConf >= this.config.confirmationRequired) {
+                currentActive.confirmationCounter = 0;
+                this.botState = "STATE_TRADING";
+                this.sequenceDone = 0;
+                
+                this.showToast("Signal Confirmation approved. Executing target sequence.", "green");
+                this.executeTradeSequence();
+              }
+            } else {
+              if (currentActive.confirmationCounter > 0) {
+                currentActive.confirmationCounter = 0;
+                this.showToast("Confirmation tick degraded: resetting counts.", "grey");
+              }
+            }
+          }
+        } else {
+          if (currentActive.confirmationCounter > 0) {
+            currentActive.confirmationCounter = 0;
+            this.showToast("Signal volume flatlining: reset confirm.", "grey");
+          }
+          this.checkAndSwitchSymbol();
+        }
+      }
+    }
+  }
+
+  private checkAndSwitchSymbol() {
+    if (this.botState === "STATE_TRADING" || this.awaitingSettlement) {
+      return;
+    }
+
+    if (this.consecutiveLosses > 0 || this.inRecovery) {
+      return;
+    }
+
+    const bestSymbol = this.getBestQualifiedSymbol();
+    
+    if (bestSymbol === null) {
+      if (this.activeSymbol !== null) {
+        this.activeSymbol = null;
+        this.botState = "STATE_SCANNING";
+        this.showToast("No active triggers: searching indices.", "grey");
+      }
+      return;
+    }
+
+    if (bestSymbol.symbol !== this.activeSymbol) {
+      const prevSymbol = this.activeSymbol;
+      if (prevSymbol && this.symbolStates[prevSymbol]) {
+        this.symbolStates[prevSymbol].confirmationCounter = 0;
+      }
+
+      this.activeSymbol = bestSymbol.symbol;
+      this.botState = "STATE_CONFIRMING";
+      this.showToast(`Focus index switched to ${bestSymbol.displayName} (Under: ${bestSymbol.underPct}%)`, "blue");
+    }
+  }
+
+  private getBestQualifiedSymbol(): SymbolState | null {
+    const list = Object.values(this.symbolStates);
+    const qualified = list.filter(
+      s => s.underPct >= this.config.minUnderPercentage &&
+           s.buffer.length >= this.config.analysisTickCount &&
+           !s.isClosed
+    );
+
+    if (qualified.length === 0) return null;
+
+    qualified.sort((a, b) => b.underPct - a.underPct);
+    const candidate = qualified[0];
+    
+    if (this.activeSymbol && this.symbolStates[this.activeSymbol]) {
+      const currentObj = this.symbolStates[this.activeSymbol];
+      if (candidate.underPct <= currentObj.underPct && currentObj.underPct >= this.config.minUnderPercentage && !currentObj.isClosed) {
+        return currentObj;
+      }
+    }
+
+    return candidate;
+  }
+
+  private getPayoutFactor(): number {
+    const barrier = this.config.referenceDigit;
+    const payoutFactor = barrier === 7 ? 0.34 : (0.95 / (barrier / 10)) - 1;
+    return Number(Math.max(0.05, payoutFactor).toFixed(2));
+  }
+
+  private executeTradeSequence() {
+    if (this.botState === "STATE_STOPPED") return;
+    
+    const symbol = this.activeSymbol;
+    if (!symbol) return;
+
+    const currentActiveObj = this.symbolStates[symbol];
+    if (!currentActiveObj) return;
+
+    const baseStake = this.config.stakeAmount;
+    let computedStake = baseStake;
+
+    if (this.consecutiveLosses > 0 || this.inRecovery) {
+      if (this.config.mode === "Martingale") {
+        computedStake = Number((baseStake * this.multiplier).toFixed(2));
+      } else if (this.config.mode === "PayoutAdaptive") {
+        const pFactor = this.getPayoutFactor();
+        computedStake = Number(((this.accumulatedLoss + baseStake) / pFactor).toFixed(2));
+      } else if (this.config.mode === "DAlembert") {
+        // Linear scaling based on step count
+        const steps = this.consecutiveLosses;
+        computedStake = Number((baseStake * (steps + 1)).toFixed(2));
+      } else if (this.config.mode === "GradualRecovery") {
+        // Split-Martingale: target recovering half of the accumulated loss per trade
+        const pFactor = this.getPayoutFactor();
+        const targetRecovery = this.accumulatedLoss / 2;
+        computedStake = Number(((targetRecovery + baseStake) / pFactor).toFixed(2));
+      }
+    }
+
+    // Safety balance check
+    const currentBalance = Number(this.balance) || 10000;
+    if (computedStake > currentBalance) {
+      this.showToast(`Insufficient balance to execution. Required: $${computedStake}, Balance: $${currentBalance}. Halting bot.`, "red");
+      this.haltBot(`Insufficient balance for stake: $${computedStake} vs $${currentBalance}`);
+      return;
+    }
+
+    const currentMultiplier = Number((computedStake / baseStake).toFixed(2));
+    const token = this.config.apiToken;
+
+    this.awaitingSettlement = true;
+
+    this.showToast(`Order logged: [UNDER] Trade #${this.sequenceDone + 1} on ${currentActiveObj.displayName} ($${computedStake})`, "blue");
+
+    if (this.config.demoMode || !token || token.trim() === "") {
+      this.pendingVirtualContract = {
+        symbol,
+        stake: computedStake,
+        barrier: this.config.referenceDigit,
+        multiplier: currentMultiplier,
+        seq: this.sequenceDone,
+        timestamp: new Date().toISOString()
+      };
+    } else {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.pendingRealContract = {
+          id: "",
+          symbol,
+          stake: computedStake,
+          seq: this.sequenceDone
+        };
+
+        const buyPayload = {
+          buy: 1,
+          price: computedStake,
+          parameters: {
+            contract_type: "DIGITUNDER",
+            symbol: symbol,
+            duration: 1,
+            duration_unit: "t",
+            barrier: String(this.config.referenceDigit),
+            basis: "stake",
+            amount: computedStake,
+            currency: "USD"
+          }
+        };
+
+        this.ws.send(JSON.stringify(buyPayload));
+      }
+    }
+  }
+
+  private handleVirtualContractSettled(settledDigit: number) {
+    const contract = this.pendingVirtualContract;
+    if (!contract) return;
+
+    this.pendingVirtualContract = null;
+    this.awaitingSettlement = false;
+
+    const currentActive = this.symbolStates[contract.symbol];
+    const signalStr = currentActive ? currentActive.signalStrength : "STRONG";
+    const under_pct = currentActive ? currentActive.underPct : 0;
+    
+    const isWin = settledDigit < contract.barrier;
+    const payoutFactor = contract.barrier === 7 ? 0.34 : (0.95 / (contract.barrier / 10)) - 1;
+    const cleanPayoutFactor = Number(Math.max(0.05, payoutFactor).toFixed(2));
+    const profitAmount = isWin ? Number((contract.stake * cleanPayoutFactor).toFixed(2)) : -contract.stake;
+
+    this.processContractOutcome(isWin ? "WIN" : "LOSS", contract.symbol, contract.stake, profitAmount, under_pct, signalStr);
+  }
+
+  private handleRealContractSettled(poc: any) {
+    const isWin = Number(poc.profit) > 0;
+    const profitAmount = Number(poc.profit);
+    const stakeAmount = Number(poc.buy_price);
+    const symbol = poc.symbol;
+    
+    if (poc && poc.balance_after !== undefined && poc.balance_after !== null) {
+      const parsedBal = Number(poc.balance_after);
+      if (!isNaN(parsedBal)) {
+        this.balance = parsedBal.toFixed(2);
+      }
+    }
+    this.pendingRealContract = null;
+    this.awaitingSettlement = false;
+
+    const currentActive = this.symbolStates[symbol];
+    const signalStr = currentActive ? currentActive.signalStrength : "STRONG";
+    const under_pct = currentActive ? currentActive.underPct : 0;
+
+    this.processContractOutcome(isWin ? "WIN" : "LOSS", symbol, stakeAmount, profitAmount, under_pct, signalStr);
+  }
+
+  private processContractOutcome(
+    outcome: "WIN" | "LOSS",
+    symbol: string,
+    stake: number,
+    profit: number,
+    under_pct: number,
+    signal_strength: string
+  ) {
+    const nextSessionProfit = Number((this.sessionProfit + profit).toFixed(2));
+    this.sessionProfit = nextSessionProfit;
+    const nextDailyTrades = this.dailyTradesCount + 1;
+    this.dailyTradesCount = nextDailyTrades;
+
+    // Update balance representation for demo/simulated modes
+    if (this.config.demoMode || !this.config.apiToken) {
+      const orig = this.config.demoBalance ?? 10000.00;
+      const nextDemoBalance = Number((orig + profit).toFixed(2));
+      this.config.demoBalance = nextDemoBalance;
+      this.balance = nextDemoBalance.toFixed(2);
+      this.saveConfigPersistence();
+    }
+
+    // Save Logs
+    const nextId = this.tradeLogs.length > 0 ? Math.max(...this.tradeLogs.map(l => l.id)) + 1 : 1;
+    
+    if (outcome === "WIN") {
+      this.currentStreak += 1;
+      if (this.currentStreak > this.bestStreak) {
+        this.bestStreak = this.currentStreak;
+      }
+    } else {
+      this.currentStreak = 0;
+    }
+
+    if (nextSessionProfit > this.peakProfit) {
+      this.peakProfit = nextSessionProfit;
+    }
+    const currentDrawdown = this.peakProfit - nextSessionProfit;
+    if (currentDrawdown > this.worstDrawdown) {
+      this.worstDrawdown = currentDrawdown;
+    }
+
+    const newLog: TradeLog = {
+      id: nextId,
+      timestamp: new Date().toISOString(),
+      symbol,
+      mode: this.config.mode,
+      under_pct,
+      signal_strength,
+      barrier: this.config.referenceDigit,
+      stake,
+      multiplier: this.multiplier,
+      outcome,
+      profit,
+      session_profit: nextSessionProfit,
+      daily_trade_no: nextDailyTrades,
+      consecutive_losses_before: this.consecutiveLosses,
+      in_recovery: this.inRecovery
+    };
+
+    this.tradeLogs = [newLog, ...this.tradeLogs].slice(0, 200);
+    this.saveLogsPersistence();
+
+    // Evaluate and track consecutive losses across all operational modes
+    if (outcome === "WIN") {
+      if (this.config.mode === "DAlembert") {
+        this.consecutiveLosses = Math.max(0, this.consecutiveLosses - 1);
+        this.accumulatedLoss = Math.max(0, this.accumulatedLoss - profit);
+        if (this.consecutiveLosses === 0) {
+          this.accumulatedLoss = 0;
+          this.multiplier = 1;
+          this.inRecovery = false;
+          this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1}). D'Alembert fully recovered, back to base stake.`, "green");
+        } else {
+          this.multiplier = this.consecutiveLosses + 1;
+          this.inRecovery = true;
+          this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1}). D'Alembert step decreased to ${this.consecutiveLosses}.`, "green");
+        }
+      } else if (this.config.mode === "GradualRecovery") {
+        this.consecutiveLosses = 0;
+        this.accumulatedLoss = Math.max(0, this.accumulatedLoss - profit);
+        if (this.accumulatedLoss <= 0.01) {
+          this.accumulatedLoss = 0;
+          this.multiplier = 1;
+          this.inRecovery = false;
+          this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1}). Gradual Recovery full target achieved!`, "green");
+        } else {
+          this.inRecovery = true;
+          const pFactor = this.getPayoutFactor();
+          const nextSmartStake = ((this.accumulatedLoss + this.config.stakeAmount) / pFactor);
+          this.multiplier = Number((nextSmartStake / this.config.stakeAmount).toFixed(2));
+          this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1}). Gradual Recovery Stage 1 complete. Recovering remaining -$${this.accumulatedLoss.toFixed(2)} next.`, "green");
+        }
+      } else {
+        // Martingale, PayoutAdaptive, or Standard
+        this.consecutiveLosses = 0;
+        this.accumulatedLoss = 0;
+        this.multiplier = 1;
+        this.inRecovery = false;
+        this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1})`, "green");
+      }
+    } else {
+      this.consecutiveLosses += 1;
+      this.accumulatedLoss += Math.abs(profit);
+
+      let recoveryMsg = "";
+      if (this.config.mode === "Martingale") {
+        this.multiplier = this.multiplier * 2;
+        this.inRecovery = true;
+        const nextDouble = stake * 2;
+        recoveryMsg = ` Doubling stake to $${nextDouble.toFixed(2)}.`;
+      } else if (this.config.mode === "PayoutAdaptive") {
+        this.inRecovery = true;
+        const pFactor = this.getPayoutFactor();
+        const nextSmartStake = ((this.accumulatedLoss + this.config.stakeAmount) / pFactor);
+        this.multiplier = Number((nextSmartStake / this.config.stakeAmount).toFixed(2));
+        recoveryMsg = ` Stake scaled to $${nextSmartStake.toFixed(2)} (Payout-Optimized) to recover -$${this.accumulatedLoss.toFixed(2)}.`;
+      } else if (this.config.mode === "DAlembert") {
+        this.inRecovery = true;
+        const nextDAlembertStake = this.config.stakeAmount * (this.consecutiveLosses + 1);
+        this.multiplier = this.consecutiveLosses + 1;
+        recoveryMsg = ` D'Alembert linear scaling active. Next stake: $${nextDAlembertStake.toFixed(2)}.`;
+      } else if (this.config.mode === "GradualRecovery") {
+        this.inRecovery = true;
+        const pFactor = this.getPayoutFactor();
+        const targetRecovery = this.accumulatedLoss / 2;
+        const nextGradualStake = ((targetRecovery + this.config.stakeAmount) / pFactor);
+        this.multiplier = Number((nextGradualStake / this.config.stakeAmount).toFixed(2));
+        recoveryMsg = ` Gradual Split-Martingale Stage 1: Targeting 50% recovery of -$${this.accumulatedLoss.toFixed(2)}. Next stake: $${nextGradualStake.toFixed(2)}.`;
+      } else {
+        this.multiplier = 1;
+        this.inRecovery = false;
+      }
+
+      this.showToast(`LOSS RECORDED! Loss: -$${Math.abs(profit).toFixed(2)}.${recoveryMsg}`, "red");
+    }
+
+    const nextSeqDone = this.sequenceDone + 1;
+    this.sequenceDone = nextSeqDone;
+
+    const limitsTriggered = this.checkSessionLimits();
+
+    if (!limitsTriggered) {
+      if (this.inRecovery || this.consecutiveLosses > 0) {
+        // Recovery continues. Instead of immediately trading, we wait for confirm criteria on the locked activeSymbol!
+        const modeLabel = this.config.mode;
+        this.botState = "STATE_CONFIRMING";
+        
+        if (symbol && this.symbolStates[symbol]) {
+          this.symbolStates[symbol].confirmationCounter = 0;
+        }
+        if (this.activeSymbol && this.symbolStates[this.activeSymbol]) {
+          this.symbolStates[this.activeSymbol].confirmationCounter = 0;
+        }
+        
+        this.showToast(`Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Stayed locked on ${symbol || this.activeSymbol}. Waiting for tick confirmation criteria...`, "blue");
+      } else {
+        // Session successfully completed! Back to baseline and scan for best available pair.
+        this.sequenceDone = 0;
+        if (symbol && this.symbolStates[symbol]) {
+          this.symbolStates[symbol].confirmationCounter = 0;
+        }
+        if (this.activeSymbol && this.symbolStates[this.activeSymbol]) {
+          this.symbolStates[this.activeSymbol].confirmationCounter = 0;
+        }
+        this.botState = "STATE_SCANNING";
+        this.activeSymbol = null; // Clear so we search and reload for an even better pair!
+        this.showToast("Trade session / recovery complete. Searching and reloading for better pair...", "green");
+        this.checkAndSwitchSymbol();
+      }
+    }
+  }
+
+  private checkSessionLimits(): boolean {
+    let triggered = false;
+    let reason = "";
+
+    if (this.consecutiveLosses >= this.config.stopLoss) {
+      triggered = true;
+      reason = `Stop Loss threshold reached: ${this.config.stopLoss} consecutive losses recorded.`;
+    }
+    else if (this.sessionProfit >= (3 * this.config.stakeAmount)) {
+      triggered = true;
+      reason = `Take Profit threshold achieved: +$${(3 * this.config.stakeAmount).toFixed(2)} (3x the stake amount of $${this.config.stakeAmount.toFixed(2)}) reached!`;
+    }
+
+    if (triggered) {
+      this.haltBot(reason);
+    }
+
+    return triggered;
+  }
+
+  private haltBot(reason: string) {
+    this.botState = "STATE_STOPPED";
+
+    // Maintain WS and scanning in the background even if deactivated/halted!
+    this.activeSymbol = null;
+    this.awaitingSettlement = false;
+
+    this.showToast(`Trading Halted: ${reason}`, "grey", false);
+
+    const list = [...this.tradeLogs];
+    const wins = list.filter(l => l.outcome === "WIN").length;
+    const losses = list.filter(l => l.outcome === "LOSS").length;
+    const total = wins + losses;
+    const winRate = total > 0 ? Number(((wins / total) * 100).toFixed(1)) : 0;
+
+    this.sessionStats = {
+      totalTrades: total,
+      wins,
+      losses,
+      winRate,
+      netProfit: this.sessionProfit,
+      stopReason: reason,
+      bestStreak: this.bestStreak,
+      worstDrawdown: Number(this.worstDrawdown.toFixed(2))
+    };
+
+    this.showSummary = true;
+    this.multiplier = 1;
+    this.inRecovery = false;
+  }
+
+  private startSilenceMonitor() {
+    this.silenceCheckInterval = setInterval(() => {
+      if (this.botState === "STATE_IDLE" || this.botState === "STATE_STOPPED") return;
+      
+      const now = Date.now();
+      SYMBOLS.forEach(({ symbol }) => {
+        const sState = this.symbolStates[symbol];
+        if (sState && !sState.isClosed && sState.lastTickTime > 0 && now - sState.lastTickTime > 30000) {
+          this.symbolStates[symbol] = {
+            ...sState,
+            isClosed: true,
+            signalStrength: "SCANNING..."
+          };
+          this.showToast(`${sState.displayName} tick stream went silent. Market temporarily down.`, "grey");
+        }
+      });
+    }, 10000);
+  }
+
+  public resetDemoBalance() {
+    this.config.demoBalance = 10000.00;
+    this.balance = "10000.00";
+    this.saveConfigPersistence();
+    this.showToast("Demo/simulated balance has been reset to $10,000.00", "blue");
+  }
+}
+
+export const bot = new ServerBot();

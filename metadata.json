@@ -1,0 +1,6 @@
+{
+  "name": "Deriv Digit Under Bot",
+  "description": "An automated real-time synthetic trading bot for Deriv Digit Under operations featuring active multi-symbol scanning, martingale multipliers, and risk clamping.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

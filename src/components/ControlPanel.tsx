@@ -29,7 +29,7 @@ export default function ControlPanel({
   const isRunning = botState !== "STATE_IDLE" && botState !== "STATE_STOPPED";
 
   // Mode change handler
-  const handleModeChange = (mode: "Standard" | "Martingale" | "PayoutAdaptive" | "DAlembert" | "GradualRecovery") => {
+  const handleModeChange = (mode: "Standard" | "GradualRecovery") => {
     onConfigChange({ ...config, mode });
   };
 
@@ -120,44 +120,6 @@ export default function ControlPanel({
                 } disabled:opacity-50`}
               >
                 Standard
-              </button>
-              <button
-                type="button"
-                disabled={isRunning}
-                onClick={() => handleModeChange("Martingale")}
-                className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                  config.mode === "Martingale"
-                    ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                    : "text-neutral-500 hover:text-white"
-                } disabled:opacity-50`}
-              >
-                Martingale
-              </button>
-              <button
-                type="button"
-                disabled={isRunning}
-                onClick={() => handleModeChange("PayoutAdaptive")}
-                className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                  config.mode === "PayoutAdaptive"
-                    ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                    : "text-neutral-500 hover:text-white"
-                } disabled:opacity-50`}
-                title="Payout-Aware Adaptive Multiplier"
-              >
-                Payout-Aware
-              </button>
-              <button
-                type="button"
-                disabled={isRunning}
-                onClick={() => handleModeChange("DAlembert")}
-                className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                  config.mode === "DAlembert"
-                    ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                    : "text-neutral-500 hover:text-white"
-                } disabled:opacity-50`}
-                title="D'Alembert Linear Scaling"
-              >
-                D'Alembert
               </button>
               <button
                 type="button"

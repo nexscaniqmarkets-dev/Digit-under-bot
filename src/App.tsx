@@ -9,7 +9,8 @@ import {
   LayoutDashboard,
   Activity,
   FileSpreadsheet,
-  Settings
+  Settings,
+  Wallet
 } from "lucide-react";
 import Header from "./components/Header";
 import ControlPanel from "./components/ControlPanel";
@@ -21,6 +22,7 @@ import TradeLogTable from "./components/TradeLogTable";
 import SessionSummaryModal from "./components/SessionSummaryModal";
 import { PORTABLE_HTML_TEMPLATE } from "./utils/portableTemplate";
 import AuthPanel from "./components/AuthPanel";
+import FundsPanel from "./components/FundsPanel";
 
 export default function App() {
   const {
@@ -58,7 +60,7 @@ export default function App() {
   } = useBot();
 
   // Tab State
-  const [activeTab, setActiveTab ] = useState<"dashboard" | "scanner" | "history" | "settings">("dashboard");
+  const [activeTab, setActiveTab ] = useState<"dashboard" | "scanner" | "history" | "settings" | "funds">("dashboard");
   const [bypassAuth, setBypassAuth] = useState(false);
   const [telegramUser, setTelegramUser] = useState<any>(null);
 
@@ -306,6 +308,19 @@ export default function App() {
                   <SettingsPanel config={config} saveConfig={saveConfig} isRunning={isRunning} />
                 </div>
               )}
+
+              {/* TAB 5: FUNDS MANAGER */}
+              {activeTab === "funds" && (
+                <div className="animate-fade-in duration-300">
+                  <FundsPanel
+                    balance={balance}
+                    isRealAccount={isRealAccount}
+                    accountEmail={accountEmail}
+                    apiToken={config.apiToken}
+                    onBalanceRefresh={() => {}}
+                  />
+                </div>
+              )}
             </>
           )}
         </main>
@@ -395,6 +410,23 @@ export default function App() {
             >
               <Settings className="h-4 w-4" />
               <span className="text-[9px] uppercase tracking-wider">Settings</span>
+            </button>
+
+            {/* Tab 5: Funds Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("funds");
+                triggerLightHaptic();
+              }}
+              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
+                activeTab === "funds"
+                  ? "bg-gold-500/10 text-gold-400 font-bold"
+                  : "text-neutral-400 hover:text-neutral-200"
+              }`}
+            >
+              <Wallet className="h-4 w-4" />
+              <span className="text-[9px] uppercase tracking-wider">Funds</span>
             </button>
           </nav>
         </div>
@@ -509,3 +541,4 @@ export default function App() {
     </div>
   );
 }
+

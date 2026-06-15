@@ -235,27 +235,8 @@ export function useBot() {
 
   // Main background syncing cycle
   useEffect(() => {
-    // Check if there is a saved token in localStorage for automatic login
-    const savedToken = localStorage.getItem("deriv_digit_bot_token");
-    if (savedToken) {
-      fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: savedToken })
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success) {
-            setCurrentUserEmail(data.state.currentUserEmail);
-          } else {
-            // Token rejected/invalid, let's clean up
-            localStorage.removeItem("deriv_digit_bot_token");
-          }
-        })
-        .catch((err) => {
-          console.warn("Failed automatic login with saved token:", err);
-        });
-    }
+    // Note: auto-login is now handled in App.tsx via Telegram ID session
+    // localStorage-based auto-login removed to prevent conflicts with logout
 
     // Sync immediately
     syncStateWithServer();

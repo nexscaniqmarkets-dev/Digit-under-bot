@@ -149,6 +149,7 @@ class ServerBot {
   private isRealAccount: boolean = false;
   private currentUserEmail: string | null = null;
   private telegramId: string;
+  private accountCurrency: string = "USD";
 
   private sessionProfit: number = 0;
   private dailyTradesCount: number = 0;
@@ -391,6 +392,7 @@ class ServerBot {
 
       // Store the WS URL and account info for connectWebSocket
       this.derivWsUrl = wsUrl;
+      this.accountCurrency = demoAccount.currency || "USD";
       this.completeTokenLogin(email, token.trim(), !isVirtual);
 
       return { success: true, email };
@@ -813,6 +815,7 @@ class ServerBot {
       }
       const auth = data.authorize;
       this.isRealAccount = !auth.is_virtual;
+      this.accountCurrency = auth.currency || "USD";
       if (auth.balance !== undefined && auth.balance !== null) {
         const parsedBal = Number(auth.balance);
         if (!isNaN(parsedBal)) {
@@ -1231,7 +1234,7 @@ class ServerBot {
             barrier: String(this.config.referenceDigit),
             basis: "stake",
             amount: computedStake,
-            currency: "USD"
+            currency: this.accountCurrency || "USD"
           }
         };
 

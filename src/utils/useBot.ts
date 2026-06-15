@@ -54,10 +54,26 @@ export function useBot() {
   const toastsRef = useRef<ToastMessage[]>([]);
   toastsRef.current = toasts;
 
+  // Get Telegram user ID — used to route all requests to the right bot instance
+  const getTelegramId = (): string => {
+    try {
+      return String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? "default");
+    } catch {
+      return "default";
+    }
+  };
+
+  const postJSON = (url: string, body: Record<string, any> = {}) =>
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, telegramId: getTelegramId() }),
+    });
+
   // Poll state and retrieve latest toasts
   const syncStateWithServer = async () => {
     try {
-      const stateRes = await fetch("/api/bot/state");
+      const stateRes = await fetch(`/api/bot/state?telegramId=${getTelegramId()}`);
       if (stateRes.ok) {
         const data = await stateRes.json();
         setConfig(data.config);
@@ -88,11 +104,10 @@ export function useBot() {
 
   const getNewToastsFromServer = async () => {
     try {
-      const toastsRes = await fetch("/api/bot/toasts");
+      const toastsRes = await fetch(`/api/bot/toasts?telegramId=${getTelegramId()}`);
       if (toastsRes.ok) {
         const freshToasts: ToastMessage[] = await toastsRes.json();
         if (freshToasts.length > 0) {
-          // Keep a persistent history of all toasts for our bottom logs drawer
           setToastHistory((prev) => {
             const merged = [...prev, ...freshToasts];
             const keys = new Set();
@@ -105,7 +120,6 @@ export function useBot() {
 
           setToasts((prev) => {
             const merged = [...prev, ...freshToasts];
-            // Filter unique ids
             const keys = new Set();
             return merged.filter((t) => {
               if (keys.has(t.id)) return false;
@@ -114,7 +128,6 @@ export function useBot() {
             });
           });
 
-          // Auto remove standard toasts after 4 seconds
           freshToasts.forEach((toast) => {
             if (toast.dismissible) {
               setTimeout(() => {
@@ -124,79 +137,61 @@ export function useBot() {
           });
         }
       }
-    } catch (e) {
-      // Slient catch
-    }
+    } catch (e) {}
   };
 
   // Immediate action handles
   const startBot = async () => {
     try {
-      const res = await fetch("/api/bot/start", { method: "POST" });
+      const res = await postJSON("/api/bot/start");
       if (res.ok) {
         const data = await res.json();
         setBotState(data.botState);
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const stopBot = async () => {
     try {
-      const res = await fetch("/api/bot/stop", { method: "POST" });
+      const res = await postJSON("/api/bot/stop");
       if (res.ok) {
         const data = await res.json();
         setBotState(data.botState);
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const saveConfig = async (newConfig: BotConfig) => {
     setConfig(newConfig);
     try {
-      await fetch("/api/bot/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newConfig)
-      });
-    } catch (e) {
-      console.error(e);
-    }
+      await postJSON("/api/bot/config", newConfig as any);
+    } catch (e) { console.error(e); }
   };
 
   const clearTradeLogs = async () => {
     try {
-      await fetch("/api/bot/clear-logs", { method: "POST" });
+      await postJSON("/api/bot/clear-logs");
       setTradeLogs([]);
       setToastHistory([]);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const closeSummary = async () => {
     try {
-      await fetch("/api/bot/dismiss-summary", { method: "POST" });
+      await postJSON("/api/bot/dismiss-summary");
       setShowSummary(false);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const resetDemoBalance = async () => {
     try {
-      const res = await fetch("/api/bot/reset-demo-balance", { method: "POST" });
+      const res = await postJSON("/api/bot/reset-demo-balance");
       if (res.ok) {
         const data = await res.json();
         setBalance(data.balance);
         setConfig(data.config);
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const removeToast = (id: string) => {
@@ -205,11 +200,7 @@ export function useBot() {
 
   const login = async (token: string) => {
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token })
-      });
+      const res = await postJSON("/api/auth/login", { token });
       const data = await res.json();
       if (data.success) {
         setCurrentUserEmail(data.state.currentUserEmail);
@@ -229,11 +220,7 @@ export function useBot() {
 
   const logout = async (telegramId?: string) => {
     try {
-      const res = await fetch("/api/auth/logout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telegramId }),
-      });
+      const res = await postJSON("/api/auth/logout", { telegramId: telegramId ?? getTelegramId() });
       const data = await res.json();
       if (data.success) {
         setCurrentUserEmail(null);

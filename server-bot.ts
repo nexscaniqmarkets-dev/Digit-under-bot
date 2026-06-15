@@ -1335,7 +1335,7 @@ class ServerBot {
           this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1}). Gradual Recovery Stage 1 complete. Recovering remaining -$${this.accumulatedLoss.toFixed(2)} next.`, "green");
         }
       } else {
-        // Martingale, PayoutAdaptive, or Standard
+        // Standard mode — reset stake but stay on symbol (same focus-lock as GradualRecovery)
         this.consecutiveLosses = 0;
         this.accumulatedLoss = 0;
         this.multiplier = 1;
@@ -1371,8 +1371,10 @@ class ServerBot {
         this.multiplier = Number((nextGradualStake / this.config.stakeAmount).toFixed(2));
         recoveryMsg = ` Gradual Split-Martingale Stage 1: Targeting 50% recovery of -$${this.accumulatedLoss.toFixed(2)}. Next stake: $${nextGradualStake.toFixed(2)}.`;
       } else {
+        // Standard mode — flat stake, but lock symbol to maintain signal focus
         this.multiplier = 1;
-        this.inRecovery = false;
+        this.inRecovery = true;
+        recoveryMsg = ` Staying focused on current symbol for next trade.`;
       }
 
       this.showToast(`LOSS RECORDED! Loss: -$${Math.abs(profit).toFixed(2)}.${recoveryMsg}`, "red");

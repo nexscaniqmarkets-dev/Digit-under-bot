@@ -3,11 +3,9 @@ import path from "path";
 import https from "https";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { bot } from "./server-bot";
+import { botManager } from "./server-bot";
 
 // ─── Telegram Webhook Setup ────────────────────────────────────────────────────
-// Registers the bot webhook with Telegram so the bot can receive /commands.
-// This runs once at startup when APP_URL and TELEGRAM_BOT_TOKEN are set.
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const APP_URL = process.env.APP_URL;
@@ -17,10 +15,8 @@ function registerTelegramWebhook() {
     console.log("[TG] Skipping webhook registration (TELEGRAM_BOT_TOKEN or APP_URL not set)");
     return;
   }
-
   const webhookUrl = `${APP_URL}/api/telegram/webhook`;
   const body = JSON.stringify({ url: webhookUrl, allowed_updates: ["message", "callback_query"] });
-
   const req = https.request(
     {
       hostname: "api.telegram.org",
@@ -34,11 +30,8 @@ function registerTelegramWebhook() {
       res.on("end", () => {
         try {
           const parsed = JSON.parse(data);
-          if (parsed.ok) {
-            console.log(`[TG] Webhook registered: ${webhookUrl}`);
-          } else {
-            console.error("[TG] Webhook registration failed:", parsed.description);
-          }
+          if (parsed.ok) console.log(`[TG] Webhook registered: ${webhookUrl}`);
+          else console.error("[TG] Webhook registration failed:", parsed.description);
         } catch (_) {}
       });
     }
@@ -46,6 +39,21 @@ function registerTelegramWebhook() {
   req.on("error", (e) => console.error("[TG] Webhook registration error:", e.message));
   req.write(body);
   req.end();
+}
+
+// ─── Session Persistence (per Telegram user) ──────────────────────────────────
+
+const SESSION_FILE = path.join(process.cwd(), "tg-sessions.json");
+
+function loadSessions(): Record<string, string> {
+  try {
+    if (!fs.existsSync(SESSION_FILE)) return {};
+    return JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
+  } catch { return {}; }
+}
+
+function saveSessions(sessions: Record<string, string>) {
+  try { fs.writeFileSync(SESSION_FILE, JSON.stringify(sessions, null, 2)); } catch {}
 }
 
 // ─── Express App ──────────────────────────────────────────────────────────────
@@ -56,35 +64,83 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Helper: get bot for a request (by telegramId or fallback)
+  function getBot(req: express.Request) {
+    const telegramId = req.body?.telegramId || req.query?.telegramId as string || "default";
+    return botManager.getBot(String(telegramId));
+  }
+
   // ── Bot REST API ─────────────────────────────────────────────────────────────
 
-  app.get("/api/bot/state", (_req, res) => {
+  app.get("/api/bot/state", (req, res) => {
+    const telegramId = req.query?.telegramId as string || "default";
+    const bot = botManager.getBot(telegramId);
     res.json(bot.getFullState());
   });
 
   app.post("/api/auth/login", async (req, res) => {
+    const bot = getBot(req);
     const { token } = req.body;
     const result = await bot.loginWithToken(token);
     res.json({ ...result, state: bot.getFullState() });
   });
 
-  // ── Session Persistence (auto-login by Telegram ID) ─────────────────────────
-  // Saves Deriv token linked to Telegram user ID so users stay logged in
+  app.post("/api/auth/logout", (req, res) => {
+    const { telegramId } = req.body;
+    if (telegramId) {
+      const sessions = loadSessions();
+      delete sessions[String(telegramId)];
+      saveSessions(sessions);
+    }
+    const bot = getBot(req);
+    const result = bot.logout();
+    res.json({ ...result, state: bot.getFullState() });
+  });
 
-  const SESSION_FILE = path.join(process.cwd(), "tg-sessions.json");
+  app.get("/api/bot/toasts", (req, res) => {
+    const telegramId = req.query?.telegramId as string || "default";
+    const bot = botManager.getBot(telegramId);
+    res.json(bot.flushToasts());
+  });
 
-  function loadSessions(): Record<string, string> {
-    try {
-      if (!fs.existsSync(SESSION_FILE)) return {};
-      return JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
-    } catch { return {}; }
-  }
+  app.post("/api/bot/start", (req, res) => {
+    const bot = getBot(req);
+    bot.startBot();
+    res.json(bot.getFullState());
+  });
 
-  function saveSessions(sessions: Record<string, string>) {
-    try { fs.writeFileSync(SESSION_FILE, JSON.stringify(sessions, null, 2)); } catch {}
-  }
+  app.post("/api/bot/stop", (req, res) => {
+    const bot = getBot(req);
+    bot.stopBot();
+    res.json(bot.getFullState());
+  });
 
-  // Save session after login
+  app.post("/api/bot/config", (req, res) => {
+    const bot = getBot(req);
+    bot.updateConfig(req.body);
+    res.json(bot.getFullState());
+  });
+
+  app.post("/api/bot/clear-logs", (req, res) => {
+    const bot = getBot(req);
+    bot.clearLogs();
+    res.json(bot.getFullState());
+  });
+
+  app.post("/api/bot/dismiss-summary", (req, res) => {
+    const bot = getBot(req);
+    bot.dismissSummary();
+    res.json(bot.getFullState());
+  });
+
+  app.post("/api/bot/reset-demo-balance", (req, res) => {
+    const bot = getBot(req);
+    bot.resetDemoBalance();
+    res.json(bot.getFullState());
+  });
+
+  // ── Session Persistence ───────────────────────────────────────────────────────
+
   app.post("/api/auth/save-session", (req, res) => {
     const { telegramId, derivToken } = req.body;
     if (!telegramId || !derivToken) return res.json({ success: false });
@@ -94,83 +150,29 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Auto-login on app open using saved Telegram session
   app.post("/api/auth/auto-login", async (req, res) => {
     const { telegramId } = req.body;
     if (!telegramId) return res.json({ success: false });
     const sessions = loadSessions();
     const token = sessions[String(telegramId)];
     if (!token) return res.json({ success: false, reason: "no_session" });
+    const bot = botManager.getBot(String(telegramId));
     const result = await bot.loginWithToken(token);
     res.json({ ...result, state: bot.getFullState() });
   });
 
-  // Clear session on logout
-  app.post("/api/auth/logout", (req, res) => {
-    const { telegramId } = req.body;
-    if (telegramId) {
-      const sessions = loadSessions();
-      delete sessions[String(telegramId)];
-      saveSessions(sessions);
-    }
-    const result = bot.logout();
-    res.json({ ...result, state: bot.getFullState() });
-  });
-
-  app.get("/api/bot/toasts", (_req, res) => {
-    res.json(bot.flushToasts());
-  });
-
-  app.post("/api/bot/start", (_req, res) => {
-    bot.startBot();
-    res.json(bot.getFullState());
-  });
-
-  app.post("/api/bot/stop", (_req, res) => {
-    bot.stopBot();
-    res.json(bot.getFullState());
-  });
-
-  app.post("/api/bot/config", (req, res) => {
-    bot.updateConfig(req.body);
-    res.json(bot.getFullState());
-  });
-
-  app.post("/api/bot/clear-logs", (_req, res) => {
-    bot.clearLogs();
-    res.json(bot.getFullState());
-  });
-
-  app.post("/api/bot/dismiss-summary", (_req, res) => {
-    bot.dismissSummary();
-    res.json(bot.getFullState());
-  });
-
-  app.post("/api/bot/reset-demo-balance", (_req, res) => {
-    bot.resetDemoBalance();
-    res.json(bot.getFullState());
-  });
-
   // ── Telegram Webhook ──────────────────────────────────────────────────────────
-  // Receives updates from Telegram (user sends /start, /status, /stop, etc.)
 
   app.post("/api/telegram/webhook", (req, res) => {
     const update = req.body;
-    res.sendStatus(200); // Acknowledge immediately
+    res.sendStatus(200);
 
     const message = update?.message;
     if (!message?.text) return;
 
     const chatId = String(message.chat.id);
     const text: string = message.text.trim().toLowerCase();
-    const adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
-
-    // Only respond to admin (optional security gate)
-    if (adminChatId && chatId !== adminChatId) {
-      sendTelegramMessage(chatId, "⛔ You are not authorized to control this bot.");
-      return;
-    }
-
+    const bot = botManager.getBot(chatId);
     const state = bot.getFullState();
 
     if (text === "/start" || text === "/help") {
@@ -189,8 +191,7 @@ async function startServer() {
         `State: \`${state.botState}\`\n` +
         `Balance: \`$${state.balance ?? "—"}\`\n` +
         `Session P&L: \`$${state.sessionProfit?.toFixed(2) ?? "0.00"}\`\n` +
-        `Daily trades: ${state.dailyTradesCount ?? 0}\n` +
-        `Active symbol: ${state.activeSymbol ?? "None"}`
+        `Daily trades: ${state.dailyTradesCount ?? 0}`
       );
     } else if (text === "/balance") {
       sendTelegramMessage(chatId, `💰 Balance: \`$${state.balance ?? "—"}\``);
@@ -236,8 +237,6 @@ async function startServer() {
     registerTelegramWebhook();
   });
 }
-
-// ─── Helper ───────────────────────────────────────────────────────────────────
 
 function sendTelegramMessage(chatId: string, text: string) {
   if (!BOT_TOKEN) return;

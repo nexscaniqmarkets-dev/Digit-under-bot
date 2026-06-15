@@ -171,6 +171,7 @@ class ServerBot {
 
   // WebSocket reference
   private ws: WebSocket | null = null;
+  private derivWsUrl: string | null = null;
   private reconnectInterval: NodeJS.Timeout | null = null;
   private silenceCheckInterval: NodeJS.Timeout | null = null;
 
@@ -336,12 +337,118 @@ class ServerBot {
     if (!token || token.trim() === "") {
       return { success: false, error: "Please enter a valid Deriv API Token." };
     }
-    
-    // Connect and authorize WebSocket temporarily to verify and retrieve email
+
+    const clientId = process.env.DERIV_CLIENT_ID || "33yYUuxyhTQPYawa2VVdV";
+
+    try {
+      // Step 1: Get accounts list using REST API
+      const accountsRes = await fetch("https://api.derivws.com/trading/v1/options/accounts", {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token.trim()}`,
+          "Deriv-App-ID": clientId,
+        },
+      });
+
+      if (!accountsRes.ok) {
+        const err = await accountsRes.json().catch(() => ({}));
+        return { success: false, error: err?.message || "Invalid token. Please generate a new PAT from Deriv." };
+      }
+
+      const accountsData = await accountsRes.json();
+      const accounts = accountsData?.data ?? [];
+
+      if (!accounts.length) {
+        return { success: false, error: "No accounts found for this token." };
+      }
+
+      // Use first account (demo preferred, else real)
+      const demoAccount = accounts.find((a: any) => a.account_type === "demo") ?? accounts[0];
+      const accountId = demoAccount.account_id || demoAccount.loginid;
+      const email = demoAccount.email || accounts[0].email || "user@deriv.com";
+      const isVirtual = demoAccount.account_type === "demo" || demoAccount.is_virtual;
+
+      // Step 2: Get OTP WebSocket URL
+      const otpRes = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token.trim()}`,
+          "Deriv-App-ID": clientId,
+        },
+      });
+
+      if (!otpRes.ok) {
+        // Fallback to old WebSocket method if OTP fails
+        return this.loginWithTokenLegacy(token);
+      }
+
+      const otpData = await otpRes.json();
+      const wsUrl = otpData?.data?.url;
+
+      if (!wsUrl) {
+        return this.loginWithTokenLegacy(token);
+      }
+
+      // Store the WS URL and account info for connectWebSocket
+      this.derivWsUrl = wsUrl;
+      this.completeTokenLogin(email, token.trim(), !isVirtual);
+
+      return { success: true, email };
+
+    } catch (e: any) {
+      console.error("[loginWithToken] REST API failed, trying legacy:", e.message);
+      return this.loginWithTokenLegacy(token);
+    }
+  }
+
+  // Legacy login using old binaryws WebSocket (fallback)
+  private async loginWithTokenLegacy(token: string): Promise<{ success: boolean; error?: string; email?: string }> {
     return new Promise((resolve) => {
       const url = `wss://ws.binaryws.com/websockets/v3?app_id=${this.config.appId || 1089}`;
       const tempWs = new WebSocket(url);
       let resolved = false;
+
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          try { tempWs.removeAllListeners(); tempWs.on("error", () => {}); tempWs.close(); } catch (e) {}
+          resolve({ success: false, error: "Authentication timed out. Please verify your connection and token." });
+        }
+      }, 8000);
+
+      tempWs.on("open", () => {
+        try { tempWs.send(JSON.stringify({ authorize: token.trim() })); } catch (e) {}
+      });
+
+      tempWs.on("message", (raw: string) => {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed.msg_type === "authorize") {
+            if (parsed.error) {
+              resolved = true;
+              clearTimeout(timeoutId);
+              try { tempWs.removeAllListeners(); tempWs.on("error", () => {}); tempWs.close(); } catch (e) {}
+              resolve({ success: false, error: parsed.error.message || "Invalid API token. Try again." });
+            } else {
+              resolved = true;
+              clearTimeout(timeoutId);
+              try { tempWs.removeAllListeners(); tempWs.on("error", () => {}); tempWs.close(); } catch (e) {}
+              const auth = parsed.authorize;
+              this.completeTokenLogin(auth.email, token.trim(), !auth.is_virtual);
+              resolve({ success: true, email: auth.email });
+            }
+          }
+        } catch (e) {}
+      });
+
+      tempWs.on("error", (err: any) => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeoutId);
+          try { tempWs.removeAllListeners(); tempWs.close(); } catch (e) {}
+          resolve({ success: false, error: "Connection error. Please check your internet and try again." });
+        }
+      });
 
       const timeoutId = setTimeout(() => {
         if (!resolved) {
@@ -416,7 +523,7 @@ class ServerBot {
     });
   }
 
-  private completeTokenLogin(email: string, apiToken: string) {
+  private completeTokenLogin(email: string, apiToken: string, isReal: boolean = false) {
     if (this.botState !== "STATE_IDLE" && this.botState !== "STATE_STOPPED") {
       this.haltBot("User context switched via Token Login");
     }
@@ -451,6 +558,7 @@ class ServerBot {
     this.currentUserEmail = user.email;
     this.config = user.config;
     this.tradeLogs = user.tradeLogs || [];
+    this.isRealAccount = isReal;
 
     // Reset session aggregates
     this.sessionProfit = 0;
@@ -482,6 +590,7 @@ class ServerBot {
     if (this.botState !== "STATE_IDLE" && this.botState !== "STATE_STOPPED") {
       this.haltBot("Active trading stopped due to user logout.");
     }
+    this.derivWsUrl = null;
     this.currentUserEmail = null;
     this.config = { ...DEFAULT_CONFIG };
     this.tradeLogs = [];
@@ -655,8 +764,9 @@ class ServerBot {
     }
     this.reconnectCountdown = null;
 
-    const url = `wss://ws.binaryws.com/websockets/v3?app_id=${this.config.appId}`;
-    console.log(`Bot connecting to: ${url}`);
+    // Use OTP-authenticated URL if available, otherwise fall back to legacy
+    const url = this.derivWsUrl || `wss://ws.binaryws.com/websockets/v3?app_id=${this.config.appId || 1089}`;
+    console.log(`Bot connecting to: ${this.derivWsUrl ? "OTP WebSocket" : "Legacy WebSocket"}`);
     
     const wsClient = new WebSocket(url);
     this.ws = wsClient;
@@ -667,9 +777,17 @@ class ServerBot {
       this.showToast("WebSocket Connection Opened", "blue");
 
       const token = this.config.apiToken;
-      if (token && token.trim() !== "") {
+      // Only send authorize if using legacy connection (OTP URL is pre-authenticated)
+      if (!this.derivWsUrl && token && token.trim() !== "") {
         console.log("Sending authorization...");
         wsClient.send(JSON.stringify({ authorize: token.trim() }));
+      } else if (this.derivWsUrl) {
+        // OTP URL is already authenticated — go straight to subscriptions
+        this.subscribeToSymbols();
+        if (token) {
+          // Still need account info — request balance
+          wsClient.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+        }
       } else {
         this.isRealAccount = false;
         this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);

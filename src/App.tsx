@@ -344,6 +344,7 @@ export default function App() {
                     isRealAccount={isRealAccount}
                     accountEmail={accountEmail}
                     apiToken={config.apiToken}
+                    telegramId={telegramUser?.id ? String(telegramUser.id) : "default"}
                     onBalanceRefresh={() => {}}
                   />
                 </div>

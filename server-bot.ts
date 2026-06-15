@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import https from "https";
 import {
   BotConfig,
   BotState,
@@ -10,6 +11,96 @@ import {
   ToastMessage,
   SessionStats
 } from "./src/types";
+
+// ─── Telegram Notifier ────────────────────────────────────────────────────────
+// Sends push messages to a Telegram chat via Bot API when key events occur.
+// Set TELEGRAM_BOT_TOKEN + TELEGRAM_ADMIN_CHAT_ID in .env to activate.
+
+class TelegramNotifier {
+  private token: string | null;
+  private chatId: string | null;
+  private enabled: boolean;
+
+  constructor() {
+    this.token = process.env.TELEGRAM_BOT_TOKEN ?? null;
+    this.chatId = process.env.TELEGRAM_ADMIN_CHAT_ID ?? null;
+    this.enabled = !!(this.token && this.chatId);
+    if (this.enabled) {
+      console.log("[TG] Telegram notifications enabled");
+    }
+  }
+
+  /** Send a plain Markdown message */
+  send(text: string): void {
+    if (!this.enabled) return;
+    const body = JSON.stringify({
+      chat_id: this.chatId,
+      text,
+      parse_mode: "Markdown",
+      disable_notification: false,
+    });
+    const req = https.request(
+      {
+        hostname: "api.telegram.org",
+        path: `/bot${this.token}/sendMessage`,
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+      },
+      (res) => {
+        if (res.statusCode && res.statusCode >= 400) {
+          console.error(`[TG] sendMessage failed: HTTP ${res.statusCode}`);
+        }
+      }
+    );
+    req.on("error", (e) => console.error("[TG] sendMessage error:", e.message));
+    req.write(body);
+    req.end();
+  }
+
+  notifyTradeWin(log: TradeLog) {
+    this.send(
+      `✅ *WIN* — ${log.symbol}\n` +
+      `Profit: \`+$${log.profit.toFixed(2)}\` | Session: \`$${log.session_profit.toFixed(2)}\`\n` +
+      `Trade #${log.daily_trade_no} | Mode: ${log.mode}`
+    );
+  }
+
+  notifyTradeLoss(log: TradeLog) {
+    this.send(
+      `❌ *LOSS* — ${log.symbol}\n` +
+      `Loss: \`-$${Math.abs(log.profit).toFixed(2)}\` | Session: \`$${log.session_profit.toFixed(2)}\`\n` +
+      `Consecutive losses: ${log.consecutive_losses_before + 1} | Mode: ${log.mode}`
+    );
+  }
+
+  notifySessionStopped(stats: SessionStats) {
+    const emoji = stats.netProfit >= 0 ? "🟢" : "🔴";
+    this.send(
+      `🛑 *Session Ended*\n` +
+      `${emoji} P&L: \`$${stats.netProfit.toFixed(2)}\`\n` +
+      `Trades: ${stats.totalTrades} | W/L: ${stats.wins}/${stats.losses} | WR: ${stats.winRate}%\n` +
+      `_Reason: ${stats.stopReason}_`
+    );
+  }
+
+  notifyBotStarted(email: string, mode: string, stake: number) {
+    this.send(
+      `🚀 *Bot Started*\n` +
+      `Account: \`${email}\`\n` +
+      `Mode: ${mode} | Stake: \`$${stake.toFixed(2)}\``
+    );
+  }
+
+  notifyConnected(email: string, isReal: boolean) {
+    this.send(
+      `🔗 *Deriv Connected*\n` +
+      `Account: \`${email}\`\n` +
+      `Type: ${isReal ? "Real 💰" : "Demo 🧪"}`
+    );
+  }
+}
+
+const tgNotifier = new TelegramNotifier();
 
 const SYMBOLS = [
   { symbol: "R_10", name: "Volatility 10" },
@@ -57,6 +148,7 @@ class ServerBot {
   private accountEmail: string | null = null;
   private isRealAccount: boolean = false;
   private currentUserEmail: string | null = null;
+  private telegramId: string;
 
   private sessionProfit: number = 0;
   private dailyTradesCount: number = 0;
@@ -92,7 +184,8 @@ class ServerBot {
   private peakProfit: number = 0;
   private worstDrawdown: number = 0;
 
-  constructor() {
+  constructor(telegramId: string = "default") {
+    this.telegramId = telegramId;
     this.ensureUsersFileExists();
     this.loadPersistence();
     this.initializeSymbolStates();
@@ -104,6 +197,20 @@ class ServerBot {
       this.accountEmail = "demo.testing@deriv.com";
       this.isRealAccount = false;
     }
+  }
+
+  // Clean up intervals when bot instance is destroyed
+  public destroy() {
+    if (this.ws) { try { this.ws.close(); } catch (_) {} this.ws = null; }
+    if (this.reconnectInterval) { clearInterval(this.reconnectInterval); this.reconnectInterval = null; }
+    if (this.silenceCheckInterval) { clearInterval(this.silenceCheckInterval); this.silenceCheckInterval = null; }
+  }
+
+  private userStoragePath(filename: string): string {
+    if (this.telegramId === "default") return path.join(process.cwd(), filename);
+    const dir = path.join(process.cwd(), "user-data", this.telegramId);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return path.join(dir, filename);
   }
 
   private loadPersistence() {
@@ -119,8 +226,9 @@ class ServerBot {
     }
 
     try {
-      if (fs.existsSync(CONFIG_FILE)) {
-        const raw = fs.readFileSync(CONFIG_FILE, "utf-8").trim();
+      const configFile = this.userStoragePath("bot-config-store.json");
+      if (fs.existsSync(configFile)) {
+        const raw = fs.readFileSync(configFile, "utf-8").trim();
         if (raw) {
           this.config = { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
         } else {
@@ -133,8 +241,9 @@ class ServerBot {
     }
 
     try {
-      if (fs.existsSync(LOGS_FILE)) {
-        const raw = fs.readFileSync(LOGS_FILE, "utf-8").trim();
+      const logsFile = this.userStoragePath("bot-logs-store.json");
+      if (fs.existsSync(logsFile)) {
+        const raw = fs.readFileSync(logsFile, "utf-8").trim();
         if (raw) {
           this.tradeLogs = JSON.parse(raw).slice(0, 200);
         } else {
@@ -159,7 +268,7 @@ class ServerBot {
     }
 
     try {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), "utf-8");
+      fs.writeFileSync(this.userStoragePath("bot-config-store.json"), JSON.stringify(this.config, null, 2), "utf-8");
     } catch (e) {
       console.error("Error saving config persistence", e);
     }
@@ -177,26 +286,25 @@ class ServerBot {
     }
 
     try {
-      fs.writeFileSync(LOGS_FILE, JSON.stringify(this.tradeLogs, null, 2), "utf-8");
+      fs.writeFileSync(this.userStoragePath("bot-logs-store.json"), JSON.stringify(this.tradeLogs, null, 2), "utf-8");
     } catch (e) {
       console.error("Error saving trade logs persistence", e);
     }
   }
 
   private ensureUsersFileExists() {
+    const usersFile = this.userStoragePath("bot-users-store.json");
     let existsAndNotEmpty = false;
     try {
-      if (fs.existsSync(USERS_FILE)) {
-        const stats = fs.statSync(USERS_FILE);
-        if (stats.size > 0) {
-          existsAndNotEmpty = true;
-        }
+      if (fs.existsSync(usersFile)) {
+        const stats = fs.statSync(usersFile);
+        if (stats.size > 0) existsAndNotEmpty = true;
       }
     } catch (e) {}
 
     if (!existsAndNotEmpty) {
       try {
-        fs.writeFileSync(USERS_FILE, JSON.stringify({ users: {} }, null, 2), "utf-8");
+        fs.writeFileSync(usersFile, JSON.stringify({ users: {} }, null, 2), "utf-8");
       } catch (e) {
         console.error("Error generating initial users file", e);
       }
@@ -206,10 +314,8 @@ class ServerBot {
   private loadUsers(): Record<string, any> {
     this.ensureUsersFileExists();
     try {
-      const data = fs.readFileSync(USERS_FILE, "utf-8").trim();
-      if (!data) {
-        return {};
-      }
+      const data = fs.readFileSync(this.userStoragePath("bot-users-store.json"), "utf-8").trim();
+      if (!data) return {};
       return JSON.parse(data).users || {};
     } catch (e) {
       console.error("Error reading users database", e);
@@ -220,7 +326,7 @@ class ServerBot {
 
   private saveUsers(users: Record<string, any>) {
     try {
-      fs.writeFileSync(USERS_FILE, JSON.stringify({ users }, null, 2), "utf-8");
+      fs.writeFileSync(this.userStoragePath("bot-users-store.json"), JSON.stringify({ users }, null, 2), "utf-8");
     } catch (e) {
       console.error("Error writing users database", e);
     }
@@ -514,6 +620,11 @@ class ServerBot {
     this.sessionStats = null;
 
     this.showToast("Starting Automated Trading Session...", "green");
+    tgNotifier.notifyBotStarted(
+      this.accountEmail ?? "unknown",
+      this.config.mode,
+      this.config.stakeAmount
+    );
     
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.connectWebSocket();
@@ -667,6 +778,7 @@ class ServerBot {
       }
       this.accountEmail = auth.email;
       this.showToast(`User Authorized: ${auth.email} (${auth.is_virtual ? "Demo Sandbox" : "Real Account"})`, "green");
+      tgNotifier.notifyConnected(auth.email, !auth.is_virtual);
       if (this.ws && this.ws.readyState === 1) { // 1 is OPEN
         try {
           this.ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
@@ -1185,6 +1297,13 @@ class ServerBot {
     this.tradeLogs = [newLog, ...this.tradeLogs].slice(0, 200);
     this.saveLogsPersistence();
 
+    // Send Telegram push notification for every trade result
+    if (outcome === "WIN") {
+      tgNotifier.notifyTradeWin(newLog);
+    } else {
+      tgNotifier.notifyTradeLoss(newLog);
+    }
+
     // Evaluate and track consecutive losses across all operational modes
     if (outcome === "WIN") {
       if (this.config.mode === "DAlembert") {
@@ -1344,7 +1463,11 @@ class ServerBot {
     this.showSummary = true;
     this.multiplier = 1;
     this.inRecovery = false;
-  }
+
+    // Notify via Telegram
+    if (this.sessionStats) {
+      tgNotifier.notifySessionStopped(this.sessionStats);
+    }
 
   private startSilenceMonitor() {
     this.silenceCheckInterval = setInterval(() => {
@@ -1373,4 +1496,43 @@ class ServerBot {
   }
 }
 
-export const bot = new ServerBot();
+// ─── Bot Manager ─────────────────────────────────────────────────────────────
+// Creates and manages one ServerBot instance per Telegram user ID.
+// Inactive bots are cleaned up after 30 minutes to free memory.
+
+class BotManager {
+  private bots: Map<string, { bot: ServerBot; lastActive: number }> = new Map();
+  private readonly TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+  constructor() {
+    // Cleanup inactive bots every 10 minutes
+    setInterval(() => this.cleanup(), 10 * 60 * 1000);
+  }
+
+  getBot(telegramId: string): ServerBot {
+    const entry = this.bots.get(telegramId);
+    if (entry) {
+      entry.lastActive = Date.now();
+      return entry.bot;
+    }
+    console.log(`[BotManager] Creating new bot instance for user ${telegramId}`);
+    const bot = new ServerBot(telegramId);
+    this.bots.set(telegramId, { bot, lastActive: Date.now() });
+    return bot;
+  }
+
+  private cleanup() {
+    const now = Date.now();
+    for (const [id, entry] of this.bots.entries()) {
+      if (now - entry.lastActive > this.TIMEOUT_MS) {
+        console.log(`[BotManager] Cleaning up inactive bot for user ${id}`);
+        entry.bot.destroy();
+        this.bots.delete(id);
+      }
+    }
+  }
+}
+
+export const botManager = new BotManager();
+// Keep backward compat single-user export for fallback
+export const bot = botManager.getBot("default");

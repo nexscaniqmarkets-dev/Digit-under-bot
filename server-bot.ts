@@ -1468,6 +1468,7 @@ class ServerBot {
     if (this.sessionStats) {
       tgNotifier.notifySessionStopped(this.sessionStats);
     }
+  }
 
   private startSilenceMonitor() {
     this.silenceCheckInterval = setInterval(() => {

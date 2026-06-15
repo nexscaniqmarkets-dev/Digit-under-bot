@@ -854,6 +854,24 @@ class ServerBot {
       this.handleHistoryResponse(data);
     }
 
+    else if (data.msg_type === "proposal") {
+      if (data.error) {
+        this.showToast(`Proposal Error: ${data.error.message}. Retrying...`, "red");
+        this.pendingRealContract = null;
+        this.awaitingSettlement = false;
+        return;
+      }
+      // Execute buy using proposal ID
+      const proposalId = data.proposal?.id;
+      const price = data.proposal?.ask_price ?? this.pendingRealContract?.stake ?? 0;
+      if (proposalId && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          buy: proposalId,
+          price: price,
+        }));
+      }
+    }
+
     else if (data.msg_type === "buy") {
       if (data.error) {
         this.showToast(`Trade Blocked: ${data.error.message}. Restarting state...`, "red");
@@ -1216,6 +1234,8 @@ class ServerBot {
       };
     } else {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        // New Deriv API: first get proposal, then buy using proposal ID
+        // Send proposal request — the response handler will execute the buy
         this.pendingRealContract = {
           id: "",
           symbol,
@@ -1223,22 +1243,19 @@ class ServerBot {
           seq: this.sequenceDone
         };
 
-        const buyPayload = {
-          buy: 1,
-          price: computedStake,
-          parameters: {
-            contract_type: "DIGITUNDER",
-            symbol: symbol,
-            duration: 1,
-            duration_unit: "t",
-            barrier: String(this.config.referenceDigit),
-            basis: "stake",
-            amount: computedStake,
-            currency: this.accountCurrency || "USD"
-          }
+        const proposalPayload = {
+          proposal: 1,
+          amount: computedStake,
+          basis: "stake",
+          contract_type: "DIGITUNDER",
+          currency: this.accountCurrency || "USD",
+          duration: 1,
+          duration_unit: "t",
+          barrier: String(this.config.referenceDigit),
+          symbol: symbol,
         };
 
-        this.ws.send(JSON.stringify(buyPayload));
+        this.ws.send(JSON.stringify(proposalPayload));
       }
     }
   }

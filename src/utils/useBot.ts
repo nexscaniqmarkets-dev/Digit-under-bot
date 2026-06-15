@@ -227,9 +227,13 @@ export function useBot() {
     return { success: false, error: "Please use the official affiliate register link to create your account." };
   };
 
-  const logout = async () => {
+  const logout = async (telegramId?: string) => {
     try {
-      const res = await fetch("/api/auth/logout", { method: "POST" });
+      const res = await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegramId }),
+      });
       const data = await res.json();
       if (data.success) {
         setCurrentUserEmail(null);

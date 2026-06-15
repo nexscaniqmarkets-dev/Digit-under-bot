@@ -54,13 +54,20 @@ export function useBot() {
   const toastsRef = useRef<ToastMessage[]>([]);
   toastsRef.current = toasts;
 
-  // Get Telegram user ID — used to route all requests to the right bot instance
+  // Get user ID — Telegram ID for Telegram users, or a persistent UUID for web users
   const getTelegramId = (): string => {
     try {
-      return String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? "default");
-    } catch {
-      return "default";
+      const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+      if (tgId) return String(tgId);
+    } catch {}
+
+    // Web user — use a persistent UUID stored in localStorage
+    let webId = localStorage.getItem("digit_bot_web_uid");
+    if (!webId) {
+      webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem("digit_bot_web_uid", webId);
     }
+    return webId;
   };
 
   const postJSON = (url: string, body: Record<string, any> = {}) =>

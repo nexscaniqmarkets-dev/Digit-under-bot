@@ -1252,7 +1252,7 @@ class ServerBot {
           duration: 1,
           duration_unit: "t",
           barrier: String(this.config.referenceDigit),
-          symbol: symbol,
+          underlying_symbol: symbol,
         };
 
         this.ws.send(JSON.stringify(proposalPayload));

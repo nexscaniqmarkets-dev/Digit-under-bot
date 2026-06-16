@@ -37,10 +37,6 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
       alert("Minimum Under Percentage threshold must be between 50% and 95%.");
       return;
     }
-    if (!formData.appId || formData.appId.trim() === "") {
-      alert("App ID cannot be left empty. Default test ID is 1089.");
-      return;
-    }
 
     const automatedConfig = {
       ...formData,
@@ -247,68 +243,17 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                   </span>
                 </div>
               </div>
-
-
-
-              {/* Demo Mode Toggle */}
-              <div className="flex items-center justify-between p-3 bg-[#131317] rounded-lg border border-white/[0.06] mt-1">
-                <div className="flex flex-col">
-                  <span className="text-[9px] font-bold text-white uppercase tracking-widest">Simulation Mode</span>
-                  <span className="text-[8.5px] text-neutral-500 font-medium leading-none mt-1 uppercase">Simulate virtual settlements</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={formData.demoMode}
-                  onChange={(e) => handleInputChange("demoMode", e.target.checked)}
-                  className="h-4 w-4 rounded text-gold-500 focus:ring-0 focus:ring-offset-0 accent-gold-500 bg-[#0d0d0f] border-white/[0.1] cursor-pointer"
-                />
-              </div>
             </div>
           </div>
 
-          {/* COLUMN 4: API Access */}
-          <div className="pt-4 border-t border-white/[0.06] grid grid-cols-1 md:grid-cols-2 gap-5 font-sans">
-            <div className="flex flex-col gap-4">
-              <h4 className="text-[9px] font-bold tracking-widest text-[#9ca3af] border-b border-white/[0.06] pb-2 uppercase">
-                ⚙️ SERVICE INTELLIGENCE KEYS
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
-                    Deriv App ID
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.appId}
-                    onChange={(e) => handleInputChange("appId", e.target.value)}
-                    className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 font-mono text-xs text-white focus:outline-none focus:border-gold-500"
-                    placeholder="1089"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
-                    API Tokens (Authorisation)
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.apiToken}
-                    onChange={(e) => handleInputChange("apiToken", e.target.value)}
-                    className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 font-mono text-xs text-white focus:outline-none focus:border-gold-500"
-                    placeholder="Leave empty for Demo/Paper"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex items-end justify-end">
-              <button
-                type="submit"
-                className="w-full md:w-auto px-6 py-2.5 rounded-lg border border-gold-500/20 text-black bg-gradient-to-r from-gold-600 to-gold-400 hover:from-gold-500 hover:to-gold-300 font-bold text-[10px] tracking-widest uppercase transition-all outline-none flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-gold-500/5 active:scale-95"
-              >
-                <Save className="h-3.5 w-3.5" /> APPLY AND SAVE CONFIG
-              </button>
-            </div>
+          {/* Save Button */}
+          <div className="pt-4 border-t border-white/[0.06] flex justify-end">
+            <button
+              type="submit"
+              className="w-full px-6 py-2.5 rounded-lg border border-gold-500/20 text-black bg-gradient-to-r from-gold-600 to-gold-400 hover:from-gold-500 hover:to-gold-300 font-bold text-[10px] tracking-widest uppercase transition-all outline-none flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-gold-500/5 active:scale-95"
+            >
+              <Save className="h-3.5 w-3.5" /> APPLY AND SAVE CONFIG
+            </button>
           </div>
         </form>
       )}

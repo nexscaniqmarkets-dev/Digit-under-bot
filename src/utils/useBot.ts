@@ -225,6 +225,37 @@ export function useBot() {
     return { success: false, error: "Please use the official affiliate register link to create your account." };
   };
 
+  // Switch to sandbox demo mode (disconnect from Deriv, keep token saved)
+  const switchToDemo = async () => {
+    try {
+      const res = await postJSON("/api/auth/switch-to-demo");
+      const data = await res.json();
+      if (data.success) {
+        setCurrentUserEmail(null);
+        setBalance(data.balance ?? "10000.00");
+        setIsRealAccount(false);
+        setAccountEmail("demo.testing@deriv.com");
+      }
+      return data;
+    } catch (e) {
+      return { success: false, error: "Switch failed." };
+    }
+  };
+
+  // Switch back to Deriv account (auto-login with saved token)
+  const switchToDeriv = async () => {
+    try {
+      const res = await postJSON("/api/auth/auto-login");
+      const data = await res.json();
+      if (data.success) {
+        setCurrentUserEmail(data.state?.currentUserEmail ?? null);
+      }
+      return data;
+    } catch (e) {
+      return { success: false, error: "Switch failed." };
+    }
+  };
+
   const logout = async (telegramId?: string) => {
     try {
       const res = await postJSON("/api/auth/logout", { telegramId: telegramId ?? getTelegramId() });
@@ -297,6 +328,8 @@ export function useBot() {
     currentUserEmail,
     login,
     signup,
-    logout
+    logout,
+    switchToDemo,
+    switchToDeriv
   };
 }

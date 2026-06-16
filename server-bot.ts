@@ -1189,8 +1189,13 @@ class ServerBot {
 
   private getBestQualifiedSymbol(): SymbolState | null {
     const list = Object.values(this.symbolStates);
+    // Use tightened threshold if in recovery mode
+    const activeThreshold = this.recoverySignalThreshold > 0
+      ? this.recoverySignalThreshold
+      : this.config.minUnderPercentage;
+
     const qualified = list.filter(
-      s => s.underPct >= this.config.minUnderPercentage &&
+      s => s.underPct >= activeThreshold &&
            s.buffer.length >= this.config.analysisTickCount &&
            !s.isClosed
     );
@@ -1202,7 +1207,7 @@ class ServerBot {
     
     if (this.activeSymbol && this.symbolStates[this.activeSymbol]) {
       const currentObj = this.symbolStates[this.activeSymbol];
-      if (candidate.underPct <= currentObj.underPct && currentObj.underPct >= this.config.minUnderPercentage && !currentObj.isClosed) {
+      if (candidate.underPct <= currentObj.underPct && currentObj.underPct >= activeThreshold && !currentObj.isClosed) {
         return currentObj;
       }
     }
@@ -1502,11 +1507,14 @@ class ServerBot {
         const targetRecovery = this.accumulatedLoss / 2;
         const nextGradualStake = ((targetRecovery + this.config.stakeAmount) / pFactor);
         this.multiplier = Number((nextGradualStake / this.config.stakeAmount).toFixed(2));
-        // After 2 consecutive losses — tighten signal requirements
+        // After 2 consecutive losses — tighten signal AND scan all markets for best 75%+ pair
         if (this.consecutiveLosses >= 2) {
           this.recoverySignalThreshold = 75;
           this.recoveryConfirmationsRequired = 3;
-          recoveryMsg = ` ⚠️ 2 losses — pausing to find 75%+ signal with 3 confirmations. Next stake: $${nextGradualStake.toFixed(2)}.`;
+          // Unlock symbol so bot scans ALL markets for strongest 75%+ signal
+          this.activeSymbol = null;
+          this.botState = "STATE_SCANNING";
+          recoveryMsg = ` ⚠️ 2 losses — scanning ALL markets for best 75%+ signal with 3 confirmations. Next stake: $${nextGradualStake.toFixed(2)}.`;
         } else {
           recoveryMsg = ` Split-M Pro: Targeting 50% recovery. Next stake: $${nextGradualStake.toFixed(2)}.`;
         }

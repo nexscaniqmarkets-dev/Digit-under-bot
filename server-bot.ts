@@ -522,6 +522,24 @@ class ServerBot {
     this.connectWebSocket();
   }
 
+  public switchToDemo() {
+    if (this.botState !== "STATE_IDLE" && this.botState !== "STATE_STOPPED") {
+      this.haltBot("Switched to sandbox demo mode.");
+    }
+    if (this.ws) {
+      try { this.ws.close(); } catch (_) {}
+      this.ws = null;
+    }
+    this.currentUserEmail = null;
+    this.accountEmail = "demo.testing@deriv.com";
+    this.isRealAccount = false;
+    this.connectionStatus = "disconnected";
+    this.derivWsUrl = null;
+    this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+    this.showToast("Switched to Sandbox Demo mode.", "blue");
+    return { success: true, balance: this.balance };
+  }
+
   public logout() {
     if (this.botState !== "STATE_IDLE" && this.botState !== "STATE_STOPPED") {
       this.haltBot("Active trading stopped due to user logout.");

@@ -151,6 +151,10 @@ class ServerBot {
   private telegramId: string;
   private accountCurrency: string = "USD";
   private bankBalance: number = 0;
+  // Signal tightening after losses (Standard mode + Split-M Pro)
+  private recoverySignalThreshold: number = 0;
+  private recoveryConfirmationsRequired: number = 0;
+  private consecutiveWinsInRecovery: number = 0;
 
   private sessionProfit: number = 0;
   private dailyTradesCount: number = 0;
@@ -1107,7 +1111,15 @@ class ServerBot {
       if (!currentActive) return;
 
       if (this.botState === "STATE_CONFIRMING") {
-        if (currentActive.underPct >= this.config.minUnderPercentage) {
+        // Use tightened threshold if in recovery (Standard after loss, Split-M Pro after 2 losses)
+        const activeThreshold = this.recoverySignalThreshold > 0
+          ? this.recoverySignalThreshold
+          : this.config.minUnderPercentage;
+        const activeConfirmationsRequired = this.recoveryConfirmationsRequired > 0
+          ? this.recoveryConfirmationsRequired
+          : this.config.confirmationRequired;
+
+        if (currentActive.underPct >= activeThreshold) {
           const digit = currentActive.lastDigit;
           if (digit !== null) {
             if (digit >= this.config.referenceDigit) {
@@ -1115,9 +1127,9 @@ class ServerBot {
               const nextConf = prevConf + 1;
               
               currentActive.confirmationCounter = nextConf;
-              this.showToast(`Confirmation key ${digit} received (${nextConf}/${this.config.confirmationRequired})`, "orange");
+              this.showToast(`Confirmation key ${digit} received (${nextConf}/${activeConfirmationsRequired})${this.recoverySignalThreshold > 0 ? ` [Recovery: ${activeThreshold}% threshold]` : ""}`, "orange");
 
-              if (nextConf >= this.config.confirmationRequired) {
+              if (nextConf >= activeConfirmationsRequired) {
                 currentActive.confirmationCounter = 0;
                 this.botState = "STATE_TRADING";
                 this.sequenceDone = 0;
@@ -1135,7 +1147,7 @@ class ServerBot {
         } else {
           if (currentActive.confirmationCounter > 0) {
             currentActive.confirmationCounter = 0;
-            this.showToast("Signal volume flatlining: reset confirm.", "grey");
+            this.showToast(`Signal too low (${currentActive.underPct}% < ${activeThreshold}% required): reset confirm.`, "grey");
           }
           this.checkAndSwitchSymbol();
         }
@@ -1223,14 +1235,26 @@ class ServerBot {
         const pFactor = this.getPayoutFactor();
         computedStake = Number(((this.accumulatedLoss + baseStake) / pFactor).toFixed(2));
       } else if (this.config.mode === "DAlembert") {
-        // Linear scaling based on step count
         const steps = this.consecutiveLosses;
         computedStake = Number((baseStake * (steps + 1)).toFixed(2));
       } else if (this.config.mode === "GradualRecovery") {
-        // Split-Martingale: target recovering half of the accumulated loss per trade
+        // Classic: recover 50% of accumulated loss per trade
         const pFactor = this.getPayoutFactor();
         const targetRecovery = this.accumulatedLoss / 2;
         computedStake = Number(((targetRecovery + baseStake) / pFactor).toFixed(2));
+      } else if (this.config.mode === "GradualRecoveryPro") {
+        // Pro: same 50% recovery but pauses after 2 losses for better signal
+        const pFactor = this.getPayoutFactor();
+        const targetRecovery = this.accumulatedLoss / 2;
+        computedStake = Number(((targetRecovery + baseStake) / pFactor).toFixed(2));
+      } else if (this.config.mode === "GradualRecoveryLite") {
+        // Lite: recover only 25% of accumulated loss per trade — much lower stakes
+        const pFactor = this.getPayoutFactor();
+        const targetRecovery = this.accumulatedLoss / 4;
+        computedStake = Number(((targetRecovery + baseStake) / pFactor).toFixed(2));
+      } else if (this.config.mode === "Standard") {
+        // Standard: stake never changes
+        computedStake = baseStake;
       }
     }
 
@@ -1412,28 +1436,43 @@ class ServerBot {
           this.inRecovery = true;
           this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1}). D'Alembert step decreased to ${this.consecutiveLosses}.`, "green");
         }
-      } else if (this.config.mode === "GradualRecovery") {
+      } else if (this.config.mode === "GradualRecovery" || this.config.mode === "GradualRecoveryPro" || this.config.mode === "GradualRecoveryLite") {
         this.consecutiveLosses = 0;
         this.accumulatedLoss = Math.max(0, this.accumulatedLoss - profit);
+        this.consecutiveWinsInRecovery += 1;
         if (this.accumulatedLoss <= 0.01) {
           this.accumulatedLoss = 0;
           this.multiplier = 1;
           this.inRecovery = false;
-          this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1}). Gradual Recovery full target achieved!`, "green");
+          this.consecutiveWinsInRecovery = 0;
+          this.recoverySignalThreshold = 0;
+          this.recoveryConfirmationsRequired = 0;
+          const modeLabel = this.config.mode === "GradualRecoveryPro" ? "Pro" : this.config.mode === "GradualRecoveryLite" ? "Lite" : "Classic";
+          this.showToast(`WIN! +$${profit.toFixed(2)}. Split-M ${modeLabel} — Full recovery achieved! Back to base stake.`, "green");
         } else {
           this.inRecovery = true;
           const pFactor = this.getPayoutFactor();
-          const nextSmartStake = ((this.accumulatedLoss + this.config.stakeAmount) / pFactor);
-          this.multiplier = Number((nextSmartStake / this.config.stakeAmount).toFixed(2));
-          this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1}). Gradual Recovery Stage 1 complete. Recovering remaining -$${this.accumulatedLoss.toFixed(2)} next.`, "green");
+          const splitRatio = this.config.mode === "GradualRecoveryLite" ? 4 : 2;
+          const nextStake = ((this.accumulatedLoss / splitRatio + this.config.stakeAmount) / pFactor);
+          this.multiplier = Number((nextStake / this.config.stakeAmount).toFixed(2));
+          this.showToast(`WIN! +$${profit.toFixed(2)}. Remaining to recover: -$${this.accumulatedLoss.toFixed(2)}. Next stake: $${nextStake.toFixed(2)}.`, "green");
         }
       } else {
-        // Standard mode — reset stake but stay on symbol (same focus-lock as GradualRecovery)
+        // Standard mode — reset, stay on symbol
         this.consecutiveLosses = 0;
         this.accumulatedLoss = 0;
         this.multiplier = 1;
         this.inRecovery = false;
-        this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1})`, "green");
+        this.consecutiveWinsInRecovery += 1;
+        // Reset signal tightening after 3 consecutive wins
+        if (this.consecutiveWinsInRecovery >= 3) {
+          this.consecutiveWinsInRecovery = 0;
+          this.recoverySignalThreshold = 0;
+          this.recoveryConfirmationsRequired = 0;
+          this.showToast(`WIN! +$${profit.toFixed(2)}. 3 consecutive wins — signal threshold reset to normal.`, "green");
+        } else {
+          this.showToast(`WIN! +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1})`, "green");
+        }
       }
     } else {
       this.consecutiveLosses += 1;
@@ -1456,18 +1495,37 @@ class ServerBot {
         const nextDAlembertStake = this.config.stakeAmount * (this.consecutiveLosses + 1);
         this.multiplier = this.consecutiveLosses + 1;
         recoveryMsg = ` D'Alembert linear scaling active. Next stake: $${nextDAlembertStake.toFixed(2)}.`;
-      } else if (this.config.mode === "GradualRecovery") {
+      } else if (this.config.mode === "GradualRecoveryPro") {
         this.inRecovery = true;
+        this.consecutiveWinsInRecovery = 0;
         const pFactor = this.getPayoutFactor();
         const targetRecovery = this.accumulatedLoss / 2;
         const nextGradualStake = ((targetRecovery + this.config.stakeAmount) / pFactor);
         this.multiplier = Number((nextGradualStake / this.config.stakeAmount).toFixed(2));
-        recoveryMsg = ` Gradual Split-Martingale Stage 1: Targeting 50% recovery of -$${this.accumulatedLoss.toFixed(2)}. Next stake: $${nextGradualStake.toFixed(2)}.`;
+        // After 2 consecutive losses — tighten signal requirements
+        if (this.consecutiveLosses >= 2) {
+          this.recoverySignalThreshold = 75;
+          this.recoveryConfirmationsRequired = 3;
+          recoveryMsg = ` ⚠️ 2 losses — pausing to find 75%+ signal with 3 confirmations. Next stake: $${nextGradualStake.toFixed(2)}.`;
+        } else {
+          recoveryMsg = ` Split-M Pro: Targeting 50% recovery. Next stake: $${nextGradualStake.toFixed(2)}.`;
+        }
+      } else if (this.config.mode === "GradualRecoveryLite") {
+        this.inRecovery = true;
+        this.consecutiveWinsInRecovery = 0;
+        const pFactor = this.getPayoutFactor();
+        const targetRecovery = this.accumulatedLoss / 4;
+        const nextLiteStake = ((targetRecovery + this.config.stakeAmount) / pFactor);
+        this.multiplier = Number((nextLiteStake / this.config.stakeAmount).toFixed(2));
+        recoveryMsg = ` Split-M Lite: Targeting 25% recovery. Next stake: $${nextLiteStake.toFixed(2)}.`;
       } else {
-        // Standard mode — flat stake, but lock symbol to maintain signal focus
+        // Standard mode — tighten signal threshold after loss
         this.multiplier = 1;
         this.inRecovery = true;
-        recoveryMsg = ` Staying focused on current symbol for next trade.`;
+        this.consecutiveWinsInRecovery = 0;
+        this.recoverySignalThreshold = 75;
+        this.recoveryConfirmationsRequired = 3;
+        recoveryMsg = ` Standard: Signal threshold raised to 75% + 3 confirmations until 3 consecutive wins.`;
       }
 
       this.showToast(`LOSS RECORDED! Loss: -$${Math.abs(profit).toFixed(2)}.${recoveryMsg}`, "red");
@@ -1558,6 +1616,9 @@ class ServerBot {
     this.showSummary = true;
     this.multiplier = 1;
     this.inRecovery = false;
+    this.recoverySignalThreshold = 0;
+    this.recoveryConfirmationsRequired = 0;
+    this.consecutiveWinsInRecovery = 0;
 
     // Notify via Telegram
     if (this.sessionStats) {

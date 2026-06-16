@@ -30,7 +30,7 @@ export interface BotConfig {
   takeProfit: number;
   maxDailyTrades: number;
   selectedSymbol: string;
-  mode: "Standard" | "GradualRecovery";
+  mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite";
   appId: string;
   apiToken: string;
   demoMode: boolean; // if true, simulates virtual trades inside the bot
@@ -68,7 +68,7 @@ export interface TradeLog {
   id: number;
   timestamp: string; // ISO string
   symbol: string;
-  mode: "Standard" | "GradualRecovery";
+  mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite";
   under_pct: number;
   signal_strength: string;
   barrier: number;

@@ -7,6 +7,9 @@ interface FundsPanelProps {
   accountEmail: string | null;
   apiToken: string;
   telegramId: string;
+  currentUserEmail: string | null;
+  onSwitchToDemo: () => Promise<any>;
+  onSwitchToDeriv: () => Promise<any>;
   onBalanceRefresh: () => void;
 }
 
@@ -21,6 +24,9 @@ export default function FundsPanel({
   accountEmail,
   apiToken,
   telegramId,
+  currentUserEmail,
+  onSwitchToDemo,
+  onSwitchToDeriv,
   onBalanceRefresh,
 }: FundsPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("topup");
@@ -37,6 +43,35 @@ export default function FundsPanel({
   const [transferStatus, setTransferStatus] = useState<Status>("idle");
   const [transferMessage, setTransferMessage] = useState("");
   const [transferLoading, setTransferLoading] = useState(false);
+
+  const [switchLoading, setSwitchLoading] = useState(false);
+  const [switchMessage, setSwitchMessage] = useState("");
+
+  const isOnDeriv = !!currentUserEmail;
+
+  async function handleAccountSwitch() {
+    setSwitchLoading(true);
+    setSwitchMessage("");
+    try {
+      if (isOnDeriv) {
+        await onSwitchToDemo();
+        setSwitchMessage("Switched to Sandbox Demo mode.");
+      } else {
+        const result = await onSwitchToDeriv();
+        if (result.success) {
+          setSwitchMessage("Switched back to Deriv account.");
+        } else {
+          setSwitchMessage("No saved Deriv session. Please login first.");
+        }
+      }
+      onBalanceRefresh();
+    } catch {
+      setSwitchMessage("Switch failed. Please try again.");
+    } finally {
+      setSwitchLoading(false);
+      setTimeout(() => setSwitchMessage(""), 3000);
+    }
+  }
 
   const actualBalance = parseFloat(balance ?? "0");
   const availableBalance = Math.max(0, actualBalance - bankBalance);
@@ -167,6 +202,44 @@ export default function FundsPanel({
             </button>
           )}
         </div>
+      </div>
+
+      {/* Account Mode Toggle */}
+      <div className="bg-bg-card border border-white/[0.07] rounded-xl p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-white mb-0.5">
+              {isOnDeriv ? "Deriv Account" : "Sandbox Demo"}
+            </p>
+            <p className="text-[10px] text-neutral-400">
+              {isOnDeriv
+                ? `Connected as ${currentUserEmail}`
+                : "No Deriv account connected"}
+            </p>
+          </div>
+          <button
+            onClick={handleAccountSwitch}
+            disabled={switchLoading}
+            className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none disabled:opacity-50 ${
+              isOnDeriv ? "bg-gold-500" : "bg-white/20"
+            }`}
+          >
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
+              isOnDeriv ? "translate-x-8" : "translate-x-1"
+            }`} />
+          </button>
+        </div>
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-[9px] text-neutral-500 uppercase tracking-wider">
+            {isOnDeriv ? "Tap to switch to Demo" : "Tap to switch to Deriv"}
+          </span>
+          {switchLoading && <Loader className="h-3 w-3 text-gold-400 animate-spin" />}
+        </div>
+        {switchMessage && (
+          <p className={`text-[10px] mt-2 ${switchMessage.includes("failed") || switchMessage.includes("No saved") ? "text-red-400" : "text-green-400"}`}>
+            {switchMessage}
+          </p>
+        )}
       </div>
 
       {/* Tab Switcher */}

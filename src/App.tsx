@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import { useBot } from "./utils/useBot";
 import { SYMBOLS } from "./types";
@@ -57,7 +56,9 @@ export default function App() {
     currentUserEmail,
     login,
     signup,
-    logout
+    logout,
+    switchToDemo,
+    switchToDeriv
   } = useBot();
 
   // Tab State
@@ -340,6 +341,9 @@ export default function App() {
                     accountEmail={accountEmail}
                     apiToken={config.apiToken}
                     telegramId={telegramId}
+                    currentUserEmail={currentUserEmail}
+                    onSwitchToDemo={switchToDemo}
+                    onSwitchToDeriv={switchToDeriv}
                     onBalanceRefresh={() => {
                       fetch(`/api/bank/balance?telegramId=${telegramId}`)
                         .then(r => r.json())

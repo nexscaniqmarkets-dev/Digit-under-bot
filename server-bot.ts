@@ -150,6 +150,7 @@ class ServerBot {
   private currentUserEmail: string | null = null;
   private telegramId: string;
   private accountCurrency: string = "USD";
+  private bankBalance: number = 0;
 
   private sessionProfit: number = 0;
   private dailyTradesCount: number = 0;
@@ -202,6 +203,10 @@ class ServerBot {
   }
 
   // Clean up intervals when bot instance is destroyed
+  public setBankBalance(amount: number) {
+    this.bankBalance = amount;
+  }
+
   public destroy() {
     if (this.ws) { try { this.ws.close(); } catch (_) {} this.ws = null; }
     if (this.reconnectInterval) { clearInterval(this.reconnectInterval); this.reconnectInterval = null; }
@@ -576,11 +581,14 @@ class ServerBot {
   }
 
   public getFullState() {
+    const availableBalance = Math.max(0, (Number(this.balance) || 0) - this.bankBalance);
     return {
       config: this.config,
       botState: this.botState,
       activeSymbol: this.activeSymbol,
       balance: this.balance,
+      availableBalance: availableBalance.toFixed(2),
+      bankBalance: this.bankBalance,
       accountEmail: this.accountEmail,
       isRealAccount: this.isRealAccount,
       sessionProfit: this.sessionProfit,
@@ -1208,10 +1216,10 @@ class ServerBot {
       }
     }
 
-    // Safety balance check
-    const currentBalance = Number(this.balance) || 10000;
+    // Safety balance check — use available balance (total minus reserved bank)
+    const currentBalance = Math.max(0, (Number(this.balance) || 10000) - this.bankBalance);
     if (computedStake > currentBalance) {
-      this.showToast(`Insufficient balance to execution. Required: $${computedStake}, Balance: $${currentBalance}. Halting bot.`, "red");
+      this.showToast(`Insufficient balance. Required: $${computedStake}, Available: $${currentBalance.toFixed(2)} (Bank: $${this.bankBalance.toFixed(2)}). Halting bot.`, "red");
       this.haltBot(`Insufficient balance for stake: $${computedStake} vs $${currentBalance}`);
       return;
     }

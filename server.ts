@@ -92,6 +92,48 @@ async function deleteSession(telegramId: string): Promise<void> {
   } catch (e) { console.error("[MongoDB] deleteSession error:", e); }
 }
 
+// ── Bank Balance (with file fallback when MongoDB unavailable) ────────────────
+const BANK_FILE = path.join(process.cwd(), "bank-balances.json");
+
+function loadBankFile(): Record<string, number> {
+  try {
+    if (!fs.existsSync(BANK_FILE)) return {};
+    return JSON.parse(fs.readFileSync(BANK_FILE, "utf-8"));
+  } catch { return {}; }
+}
+
+function saveBankFile(data: Record<string, number>) {
+  try { fs.writeFileSync(BANK_FILE, JSON.stringify(data, null, 2)); } catch {}
+}
+
+async function getBankBalance(telegramId: string): Promise<number> {
+  if (sessionsCollection) {
+    try {
+      const doc = await sessionsCollection.findOne({ telegramId });
+      return doc?.bankBalance ?? 0;
+    } catch {}
+  }
+  // Fallback to file
+  return loadBankFile()[telegramId] ?? 0;
+}
+
+async function setBankBalanceDB(telegramId: string, amount: number): Promise<void> {
+  if (sessionsCollection) {
+    try {
+      await sessionsCollection.updateOne(
+        { telegramId },
+        { $set: { bankBalance: amount } },
+        { upsert: true }
+      );
+      return;
+    } catch {}
+  }
+  // Fallback to file
+  const data = loadBankFile();
+  data[telegramId] = amount;
+  saveBankFile(data);
+}
+
 // ─── Express App ──────────────────────────────────────────────────────────────
 
 async function startServer() {
@@ -203,51 +245,34 @@ async function startServer() {
 
   app.get("/api/bank/balance", async (req, res) => {
     const telegramId = req.query?.telegramId as string || "default";
-    if (!sessionsCollection) return res.json({ balance: 0 });
-    try {
-      const doc = await sessionsCollection.findOne({ telegramId });
-      res.json({ balance: doc?.bankBalance ?? 0 });
-    } catch { res.json({ balance: 0 }); }
+    const balance = await getBankBalance(telegramId);
+    res.json({ balance });
   });
 
   app.post("/api/bank/deposit", async (req, res) => {
     const { telegramId, amount } = req.body;
     if (!telegramId || !amount) return res.json({ success: false, error: "Missing fields" });
-    if (!sessionsCollection) return res.json({ success: false, error: "Database not connected" });
     try {
-      const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
-      const currentBank = doc?.bankBalance ?? 0;
+      const currentBank = await getBankBalance(String(telegramId));
       const newBank = currentBank + parseFloat(amount);
-      await sessionsCollection.updateOne(
-        { telegramId: String(telegramId) },
-        { $set: { bankBalance: newBank } },
-        { upsert: true }
-      );
-      // Update bot instance so balance check uses correct available balance
+      await setBankBalanceDB(String(telegramId), newBank);
       botManager.getBot(String(telegramId)).setBankBalance(newBank);
       res.json({ success: true, bankBalance: newBank });
-    } catch (e) { res.json({ success: false, error: "Database error" }); }
+    } catch (e) { res.json({ success: false, error: "Storage error" }); }
   });
 
   app.post("/api/bank/withdraw", async (req, res) => {
     const { telegramId, amount } = req.body;
     if (!telegramId || !amount) return res.json({ success: false, error: "Missing fields" });
-    if (!sessionsCollection) return res.json({ success: false, error: "Database not connected" });
     try {
-      const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
-      const currentBank = doc?.bankBalance ?? 0;
+      const currentBank = await getBankBalance(String(telegramId));
       const withdrawAmount = parseFloat(amount);
       if (withdrawAmount > currentBank) return res.json({ success: false, error: "Insufficient bank balance" });
       const newBank = currentBank - withdrawAmount;
-      await sessionsCollection.updateOne(
-        { telegramId: String(telegramId) },
-        { $set: { bankBalance: newBank } },
-        { upsert: true }
-      );
-      // Update bot instance
+      await setBankBalanceDB(String(telegramId), newBank);
       botManager.getBot(String(telegramId)).setBankBalance(newBank);
       res.json({ success: true, bankBalance: newBank });
-    } catch (e) { res.json({ success: false, error: "Database error" }); }
+    } catch (e) { res.json({ success: false, error: "Storage error" }); }
   });
 
   app.post("/api/telegram/webhook", (req, res) => {

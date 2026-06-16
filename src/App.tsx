@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from "react";
 import { useBot } from "./utils/useBot";
 import { SYMBOLS } from "./types";
@@ -482,4 +483,82 @@ export default function App() {
             <div className="p-4 bg-[#1b1b22] border-b border-white/[0.06] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Terminal className="h-4 w-4 text-gold-500" />
-                <span className="text-[11px] font-bold text-white uppercase tr
+                <span className="text-[11px] font-bold text-white uppercase tracking-wider">Live System Execution Logs</span>
+                <span className="text-[9px] font-mono bg-white/[0.03] text-neutral-400 px-1.5 py-0.5 rounded">
+                  {toastHistory.length} entry(s)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {toastHistory.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearTradeLogs}
+                    className="text-[9px] font-bold text-neutral-500 hover:text-rose-400 transition-colors uppercase cursor-pointer"
+                  >
+                    Clear History
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLastOpenedLength(toastHistory.length);
+                    setShowLogsDrawer(false);
+                  }}
+                  className="p-1 rounded-lg hover:bg-white/[0.04] text-neutral-400 hover:text-white transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* List Body */}
+            <div className="p-4 overflow-y-auto space-y-2.5 flex-1 min-h-[250px] bg-[#0c0c0f]">
+              {toastHistory.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center p-8 gap-2">
+                  <Terminal className="h-8 w-8 text-neutral-600 animate-pulse" />
+                  <p className="text-[11px] text-neutral-500 uppercase tracking-wider font-semibold">No System Alerts Recorded Yet</p>
+                  <p className="text-[9px] text-neutral-600 uppercase max-w-[280px]">Operational records will be logged dynamically when the bot begins diagnostic cycles.</p>
+                </div>
+              ) : (
+                toastHistory.slice().reverse().map((toast) => {
+                  let badgeColor = "border-white/[0.05] text-neutral-400 bg-white/[0.01]";
+                  if (toast.type === "blue") badgeColor = "border-gold-500/20 text-gold-400 bg-gold-500/5";
+                  else if (toast.type === "orange") badgeColor = "border-orange-500/20 text-orange-400 bg-orange-500/5";
+                  else if (toast.type === "green") badgeColor = "border-emerald-500/20 text-emerald-400 bg-emerald-500/5";
+                  else if (toast.type === "red") badgeColor = "border-rose-500/20 text-rose-450 bg-rose-500/5";
+
+                  return (
+                    <div
+                      key={toast.id}
+                      className={`p-3 rounded-lg border flex flex-col gap-1 text-left ${badgeColor}`}
+                    >
+                      <p className="text-xs font-semibold text-neutral-200 leading-snug">{toast.message}</p>
+                      <span className="text-[8px] font-mono text-neutral-500 tracking-wider">SYSTEM ACTION LOG ENTRY</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 bg-[#0c0c0f] border-t border-white/[0.04] text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setLastOpenedLength(toastHistory.length);
+                  setShowLogsDrawer(false);
+                }}
+                className="w-full py-2 bg-[#1b1b22] border border-white/[0.06] rounded-lg text-white hover:bg-gold-500 hover:text-black hover:border-gold-500 transition-all text-[10px] font-bold tracking-wider uppercase cursor-pointer"
+              >
+                Close Audit Viewer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stats summary Popups Modals shown when halted */}
+      {showSummary && <SessionSummaryModal stats={sessionStats} onClose={closeSummary} />}
+    </div>
+  );
+}

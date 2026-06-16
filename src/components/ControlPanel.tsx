@@ -29,7 +29,7 @@ export default function ControlPanel({
   const isRunning = botState !== "STATE_IDLE" && botState !== "STATE_STOPPED";
 
   // Mode change handler
-  const handleModeChange = (mode: "Standard" | "GradualRecovery") => {
+  const handleModeChange = (mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite") => {
     onConfigChange({ ...config, mode });
   };
 
@@ -130,9 +130,35 @@ export default function ControlPanel({
                     ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
                     : "text-neutral-500 hover:text-white"
                 } disabled:opacity-50`}
-                title="Gradual Recovery (Split-Martingale)"
+                title="Split-Martingale Classic — 50% recovery per trade"
               >
-                Split-Martingale
+                Split-M Classic
+              </button>
+              <button
+                type="button"
+                disabled={isRunning}
+                onClick={() => handleModeChange("GradualRecoveryPro")}
+                className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
+                  config.mode === "GradualRecoveryPro"
+                    ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
+                    : "text-neutral-500 hover:text-white"
+                } disabled:opacity-50`}
+                title="Split-Martingale Pro — pauses after 2 losses, finds 75%+ signal"
+              >
+                Split-M Pro
+              </button>
+              <button
+                type="button"
+                disabled={isRunning}
+                onClick={() => handleModeChange("GradualRecoveryLite")}
+                className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
+                  config.mode === "GradualRecoveryLite"
+                    ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
+                    : "text-neutral-500 hover:text-white"
+                } disabled:opacity-50`}
+                title="Split-Martingale Lite — 25% recovery per trade, lower stakes"
+              >
+                Split-M Lite
               </button>
             </div>
           </div>

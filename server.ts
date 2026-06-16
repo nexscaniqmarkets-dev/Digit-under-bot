@@ -215,7 +215,11 @@ async function startServer() {
     res.json(bot.getFullState());
   });
 
-  // ── Session Persistence ───────────────────────────────────────────────────────
+  app.post("/api/auth/switch-to-demo", (req, res) => {
+    const bot = getBot(req);
+    const result = bot.switchToDemo();
+    res.json({ ...result, state: bot.getFullState() });
+  });
 
   app.post("/api/auth/save-session", async (req, res) => {
     const { telegramId, derivToken } = req.body;

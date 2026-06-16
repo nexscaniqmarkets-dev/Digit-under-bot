@@ -63,6 +63,22 @@ export default function App() {
   const [activeTab, setActiveTab ] = useState<"dashboard" | "scanner" | "history" | "settings" | "funds">("dashboard");
   const [bypassAuth, setBypassAuth] = useState(false);
   const [telegramUser, setTelegramUser] = useState<any>(null);
+  const [bankBalance, setBankBalance] = useState<number>(0);
+
+  const telegramId = telegramUser?.id ? String(telegramUser.id) : "default";
+  // Available balance = total minus what's in Reserved Bank (works for both demo and real)
+  const actualBalance = balance ? parseFloat(balance) : null;
+  const availableBalance = actualBalance !== null ? Math.max(0, actualBalance - bankBalance).toFixed(2) : null;
+
+  // Load bank balance whenever user logs in
+  useEffect(() => {
+    if ((currentUserEmail || bypassAuth) && telegramId) {
+      fetch(`/api/bank/balance?telegramId=${telegramId}`)
+        .then(r => r.json())
+        .then(data => setBankBalance(data.balance ?? 0))
+        .catch(() => {});
+    }
+  }, [currentUserEmail, bypassAuth, telegramId]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.Telegram?.WebApp) {
@@ -186,7 +202,7 @@ export default function App() {
         {/* Header segment */}
         <Header
           connectionStatus={connectionStatus}
-          balance={balance}
+          balance={availableBalance}
           accountEmail={accountEmail}
           isRealAccount={isRealAccount}
           botState={botState}
@@ -344,8 +360,13 @@ export default function App() {
                     isRealAccount={isRealAccount}
                     accountEmail={accountEmail}
                     apiToken={config.apiToken}
-                    telegramId={telegramUser?.id ? String(telegramUser.id) : "default"}
-                    onBalanceRefresh={() => {}}
+                    telegramId={telegramId}
+                    onBalanceRefresh={() => {
+                      fetch(`/api/bank/balance?telegramId=${telegramId}`)
+                        .then(r => r.json())
+                        .then(data => setBankBalance(data.balance ?? 0))
+                        .catch(() => {});
+                    }}
                   />
                 </div>
               )}

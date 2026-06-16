@@ -188,11 +188,67 @@ async function startServer() {
     const token = await getSession(String(telegramId));
     if (!token) return res.json({ success: false, reason: "no_session" });
     const bot = botManager.getBot(String(telegramId));
+    // Restore bank balance from MongoDB
+    if (sessionsCollection) {
+      try {
+        const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
+        if (doc?.bankBalance) bot.setBankBalance(doc.bankBalance);
+      } catch {}
+    }
     const result = await bot.loginWithToken(token);
     res.json({ ...result, state: bot.getFullState() });
   });
 
-  // ── Telegram Webhook ──────────────────────────────────────────────────────────
+  // ── Reserved Bank ─────────────────────────────────────────────────────────────
+
+  app.get("/api/bank/balance", async (req, res) => {
+    const telegramId = req.query?.telegramId as string || "default";
+    if (!sessionsCollection) return res.json({ balance: 0 });
+    try {
+      const doc = await sessionsCollection.findOne({ telegramId });
+      res.json({ balance: doc?.bankBalance ?? 0 });
+    } catch { res.json({ balance: 0 }); }
+  });
+
+  app.post("/api/bank/deposit", async (req, res) => {
+    const { telegramId, amount } = req.body;
+    if (!telegramId || !amount) return res.json({ success: false, error: "Missing fields" });
+    if (!sessionsCollection) return res.json({ success: false, error: "Database not connected" });
+    try {
+      const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
+      const currentBank = doc?.bankBalance ?? 0;
+      const newBank = currentBank + parseFloat(amount);
+      await sessionsCollection.updateOne(
+        { telegramId: String(telegramId) },
+        { $set: { bankBalance: newBank } },
+        { upsert: true }
+      );
+      // Update bot instance so balance check uses correct available balance
+      botManager.getBot(String(telegramId)).setBankBalance(newBank);
+      res.json({ success: true, bankBalance: newBank });
+    } catch (e) { res.json({ success: false, error: "Database error" }); }
+  });
+
+  app.post("/api/bank/withdraw", async (req, res) => {
+    const { telegramId, amount } = req.body;
+    if (!telegramId || !amount) return res.json({ success: false, error: "Missing fields" });
+    if (!sessionsCollection) return res.json({ success: false, error: "Database not connected" });
+    try {
+      const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
+      const currentBank = doc?.bankBalance ?? 0;
+      const withdrawAmount = parseFloat(amount);
+      if (withdrawAmount > currentBank) return res.json({ success: false, error: "Insufficient bank balance" });
+      const newBank = currentBank - withdrawAmount;
+      await sessionsCollection.updateOne(
+        { telegramId: String(telegramId) },
+        { $set: { bankBalance: newBank } },
+        { upsert: true }
+      );
+      // Update bot instance
+      botManager.getBot(String(telegramId)).setBankBalance(newBank);
+      res.json({ success: true, bankBalance: newBank });
+    } catch (e) { res.json({ success: false, error: "Database error" }); }
+  });
 
   app.post("/api/telegram/webhook", (req, res) => {
     const update = req.body;

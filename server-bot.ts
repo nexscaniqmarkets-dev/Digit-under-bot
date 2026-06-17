@@ -1589,9 +1589,9 @@ class ServerBot {
         this.multiplier = 1;
         this.inRecovery = true;
         this.consecutiveWinsInRecovery = 0;
-        this.recoverySignalThreshold = 75;
-        this.recoveryConfirmationsRequired = 3;
-        recoveryMsg = ` Standard: Signal threshold raised to 75% + 3 confirmations until 3 consecutive wins.`;
+        this.recoverySignalThreshold = 70;
+        this.recoveryConfirmationsRequired = 2;
+        recoveryMsg = ` Standard: Signal threshold raised to 70% + 2 confirmations until 3 consecutive wins.`;
       }
 
       this.showToast(`LOSS RECORDED! Loss: -$${Math.abs(profit).toFixed(2)}.${recoveryMsg}`, "red");

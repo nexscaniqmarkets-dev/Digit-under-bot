@@ -234,11 +234,12 @@ async function startServer() {
     const token = await getSession(String(telegramId));
     if (!token) return res.json({ success: false, reason: "no_session" });
     const bot = botManager.getBot(String(telegramId));
-    // Restore bank balance from MongoDB
+    // Restore bank balance and demoBalance from MongoDB
     if (sessionsCollection) {
       try {
         const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
         if (doc?.bankBalance) bot.setBankBalance(doc.bankBalance);
+        if (doc?.demoBalance) bot.restoreDemoBalance(doc.demoBalance);
       } catch {}
     }
     const result = await bot.loginWithToken(token);
@@ -260,7 +261,17 @@ async function startServer() {
       const currentBank = await getBankBalance(String(telegramId));
       const newBank = currentBank + parseFloat(amount);
       await setBankBalanceDB(String(telegramId), newBank);
-      botManager.getBot(String(telegramId)).setBankBalance(newBank);
+      const bot = botManager.getBot(String(telegramId));
+      bot.setBankBalance(newBank);
+      // Also save current demoBalance to MongoDB for persistence
+      const state = bot.getFullState();
+      if (state.config?.demoBalance !== undefined && sessionsCollection) {
+        await sessionsCollection.updateOne(
+          { telegramId: String(telegramId) },
+          { $set: { demoBalance: state.config.demoBalance } },
+          { upsert: true }
+        ).catch(() => {});
+      }
       res.json({ success: true, bankBalance: newBank });
     } catch (e) { res.json({ success: false, error: "Storage error" }); }
   });

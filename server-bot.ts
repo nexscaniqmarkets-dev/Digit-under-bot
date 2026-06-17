@@ -1168,6 +1168,7 @@ class ServerBot {
             this.botState = "STATE_SCANNING";
             this.showToast("Signal dropped below 75% — scanning all markets again.", "grey");
           } else {
+            // Standard, Classic, Lite — call checkAndSwitchSymbol normally
             this.checkAndSwitchSymbol();
           }
         }
@@ -1185,10 +1186,13 @@ class ServerBot {
     // Only scan freely when activeSymbol is null
     const isProScanMode = this.config.mode === "GradualRecoveryPro"
       && this.recoverySignalThreshold > 0
-      && this.activeSymbol === null; // Only scan when no symbol selected yet
+      && this.activeSymbol === null;
 
-    // For all other recovery modes — stay locked on current symbol
-    if ((this.consecutiveLosses > 0 || this.inRecovery) && !isProScanMode) {
+    // Standard mode after loss — allow symbol switching (signal tightening handles entry quality)
+    const isStandardRecovery = this.config.mode === "Standard" && this.inRecovery;
+
+    // For Split-M Classic and Lite — stay locked on current symbol during recovery
+    if ((this.consecutiveLosses > 0 || this.inRecovery) && !isProScanMode && !isStandardRecovery) {
       return;
     }
 
@@ -1533,6 +1537,15 @@ class ServerBot {
         const nextDAlembertStake = this.config.stakeAmount * (this.consecutiveLosses + 1);
         this.multiplier = this.consecutiveLosses + 1;
         recoveryMsg = ` D'Alembert linear scaling active. Next stake: $${nextDAlembertStake.toFixed(2)}.`;
+      } else if (this.config.mode === "GradualRecovery") {
+        // Classic: recover 50% of accumulated loss per trade, stay on same symbol
+        this.inRecovery = true;
+        this.consecutiveWinsInRecovery = 0;
+        const pFactor = this.getPayoutFactor();
+        const targetRecovery = this.accumulatedLoss / 2;
+        const nextClassicStake = ((targetRecovery + this.config.stakeAmount) / pFactor);
+        this.multiplier = Number((nextClassicStake / this.config.stakeAmount).toFixed(2));
+        recoveryMsg = ` Split-M Classic: Targeting 50% recovery. Next stake: $${nextClassicStake.toFixed(2)}.`;
       } else if (this.config.mode === "GradualRecoveryPro") {
         this.inRecovery = true;
         this.consecutiveWinsInRecovery = 0;
@@ -1579,23 +1592,42 @@ class ServerBot {
 
     if (!limitsTriggered) {
       if (this.inRecovery || this.consecutiveLosses > 0) {
-        // Recovery continues. Instead of immediately trading, we wait for confirm criteria on the locked activeSymbol!
         const modeLabel = this.config.mode;
-        this.botState = "STATE_CONFIRMING";
-        
+
+        // Reset confirmation counter on current symbol
         if (symbol && this.symbolStates[symbol]) {
           this.symbolStates[symbol].confirmationCounter = 0;
         }
         if (this.activeSymbol && this.symbolStates[this.activeSymbol]) {
           this.symbolStates[this.activeSymbol].confirmationCounter = 0;
         }
-        
-        this.showToast(
-          this.config.mode === "GradualRecoveryPro" && this.consecutiveLosses >= 2
-            ? `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Scanning ALL markets for 75%+ signal...`
-            : `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Stayed locked on ${symbol || this.activeSymbol}. Waiting for tick confirmation criteria...`,
-          "blue"
-        );
+
+        // Pro mode after 2+ losses — already set to STATE_SCANNING with activeSymbol=null above
+        if (this.config.mode === "GradualRecoveryPro" && this.consecutiveLosses >= 2) {
+          this.botState = "STATE_SCANNING";
+          this.activeSymbol = null;
+          this.showToast(
+            `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Scanning ALL markets for 75%+ signal...`,
+            "blue"
+          );
+        } else if (this.config.mode === "GradualRecovery" || this.config.mode === "GradualRecoveryLite") {
+          // Classic/Lite — stay on same symbol, go straight to CONFIRMING
+          this.botState = "STATE_CONFIRMING";
+          this.showToast(
+            `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Waiting for confirmation on ${this.activeSymbol || symbol}...`,
+            "blue"
+          );
+        } else {
+          // Standard and Pro (loss 1) — scan for next entry
+          this.botState = "STATE_SCANNING";
+          this.showToast(
+            `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Scanning for next entry...`,
+            "blue"
+          );
+        }
+
+        // Immediately trigger scan so bot doesn't wait for next tick
+        this.checkAndSwitchSymbol();
       } else {
         // Session successfully completed! Back to baseline and scan for best available pair.
         this.sequenceDone = 0;

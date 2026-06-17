@@ -540,6 +540,8 @@ class ServerBot {
     this.connectionStatus = "disconnected";
     this.derivWsUrl = null;
     this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+    // Clear token so sandbox trades go through virtual contract path
+    this.config = { ...this.config, apiToken: "", demoMode: true };
     this.showToast("Switched to Sandbox Demo mode.", "blue");
     return { success: true, balance: this.balance };
   }
@@ -738,18 +740,20 @@ class ServerBot {
       this.showToast("WebSocket Connection Opened", "blue");
 
       const token = this.config.apiToken;
+      const isDemo = this.config.demoMode || !token || token.trim() === "";
+
       // Only send authorize if using legacy connection (OTP URL is pre-authenticated)
-      if (!this.derivWsUrl && token && token.trim() !== "") {
+      if (!this.derivWsUrl && !isDemo) {
         console.log("Sending authorization...");
         wsClient.send(JSON.stringify({ authorize: token.trim() }));
       } else if (this.derivWsUrl) {
         // OTP URL is already authenticated — go straight to subscriptions
         this.subscribeToSymbols();
         if (token) {
-          // Still need account info — request balance
           wsClient.send(JSON.stringify({ balance: 1, subscribe: 1 }));
         }
       } else {
+        // Sandbox demo mode — no auth needed
         this.isRealAccount = false;
         this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
         this.accountEmail = "demo.testing@deriv.com";

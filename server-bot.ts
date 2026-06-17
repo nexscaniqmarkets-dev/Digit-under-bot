@@ -1105,7 +1105,7 @@ class ServerBot {
       return;
     }
 
-    if (this.botState === "STATE_SCANNING" || this.botState === "STATE_CONFIRMING") {
+    if (this.botState === "STATE_SCANNING") {
       this.checkAndSwitchSymbol();
       return;
     }
@@ -1115,6 +1115,8 @@ class ServerBot {
       this.checkAndSwitchSymbol();
       return;
     }
+
+    // STATE_CONFIRMING falls through to confirmation tracking below
 
     // Confirmation tracking state
     if (this.activeSymbol === symbol) {

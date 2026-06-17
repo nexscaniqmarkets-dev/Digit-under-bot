@@ -1110,7 +1110,7 @@ class ServerBot {
       return;
     }
 
-    // Also allow Pro scan mode to process ticks even when activeSymbol is null
+    // Pro scan mode: when activeSymbol is null, process all ticks to find best market
     if (this.config.mode === "GradualRecoveryPro" && this.recoverySignalThreshold > 0 && !this.activeSymbol) {
       this.checkAndSwitchSymbol();
       return;
@@ -1160,7 +1160,14 @@ class ServerBot {
             currentActive.confirmationCounter = 0;
             this.showToast(`Signal too low (${currentActive.underPct}% < ${activeThreshold}% required): reset confirm.`, "grey");
           }
-          this.checkAndSwitchSymbol();
+          // In Pro scan mode after 2 losses — unlock symbol to scan all markets again
+          if (this.config.mode === "GradualRecoveryPro" && this.recoverySignalThreshold > 0) {
+            this.activeSymbol = null;
+            this.botState = "STATE_SCANNING";
+            this.showToast("Signal dropped below 75% — scanning all markets again.", "grey");
+          } else {
+            this.checkAndSwitchSymbol();
+          }
         }
       }
     }
@@ -1172,9 +1179,11 @@ class ServerBot {
     }
 
     // In GradualRecoveryPro after 2+ losses — allow scanning all markets for 75%+ signal
-    // We detect this by checking recoverySignalThreshold > 0 AND activeSymbol is null (set by loss handler)
+    // Once a symbol is selected (activeSymbol set), lock onto it for confirmation
+    // Only scan freely when activeSymbol is null
     const isProScanMode = this.config.mode === "GradualRecoveryPro"
-      && this.recoverySignalThreshold > 0;
+      && this.recoverySignalThreshold > 0
+      && this.activeSymbol === null; // Only scan when no symbol selected yet
 
     // For all other recovery modes — stay locked on current symbol
     if ((this.consecutiveLosses > 0 || this.inRecovery) && !isProScanMode) {
@@ -1463,6 +1472,7 @@ class ServerBot {
         this.accumulatedLoss = Math.max(0, this.accumulatedLoss - profit);
         this.consecutiveWinsInRecovery += 1;
         if (this.accumulatedLoss <= 0.01) {
+          // Full recovery achieved
           this.accumulatedLoss = 0;
           this.multiplier = 1;
           this.inRecovery = false;
@@ -1472,12 +1482,16 @@ class ServerBot {
           const modeLabel = this.config.mode === "GradualRecoveryPro" ? "Pro" : this.config.mode === "GradualRecoveryLite" ? "Lite" : "Classic";
           this.showToast(`WIN! +$${profit.toFixed(2)}. Split-M ${modeLabel} — Full recovery achieved! Back to base stake.`, "green");
         } else {
+          // Partial recovery — WIN resets threshold back to normal (65%)
+          // Only raise threshold again if we get 2 more consecutive losses
           this.inRecovery = true;
+          this.recoverySignalThreshold = 0;
+          this.recoveryConfirmationsRequired = 0;
           const pFactor = this.getPayoutFactor();
           const splitRatio = this.config.mode === "GradualRecoveryLite" ? 4 : 2;
           const nextStake = ((this.accumulatedLoss / splitRatio + this.config.stakeAmount) / pFactor);
           this.multiplier = Number((nextStake / this.config.stakeAmount).toFixed(2));
-          this.showToast(`WIN! +$${profit.toFixed(2)}. Remaining to recover: -$${this.accumulatedLoss.toFixed(2)}. Next stake: $${nextStake.toFixed(2)}.`, "green");
+          this.showToast(`WIN! +$${profit.toFixed(2)}. Remaining to recover: -$${this.accumulatedLoss.toFixed(2)}. Next stake: $${nextStake.toFixed(2)}. Threshold reset to 65%.`, "green");
         }
       } else {
         // Standard mode — reset, stay on symbol

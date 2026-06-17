@@ -68,9 +68,11 @@ export default function App() {
   const [bankBalance, setBankBalance] = useState<number>(0);
 
   const telegramId = telegramUser?.id ? String(telegramUser.id) : "default";
-  // Available balance = total minus what's in Reserved Bank (works for both demo and real)
   const actualBalance = balance ? parseFloat(balance) : null;
-  const availableBalance = actualBalance !== null ? Math.max(0, actualBalance - bankBalance).toFixed(2) : null;
+  // Only deduct bank balance from sandbox demo (not from real Deriv account)
+  const availableBalance = actualBalance !== null
+    ? (!currentUserEmail ? Math.max(0, actualBalance - bankBalance).toFixed(2) : actualBalance.toFixed(2))
+    : null;
 
   // Load bank balance whenever user logs in
   useEffect(() => {

@@ -248,10 +248,12 @@ export default function FundsPanel({
           className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === "topup" ? "bg-gold-500/15 text-gold-400 border border-gold-500/25" : "text-neutral-400"}`}>
           <ArrowDownCircle className="h-3 w-3" /> Top Up Demo
         </button>
-        <button onClick={() => setActiveTab("transfer")}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === "transfer" ? "bg-gold-500/15 text-gold-400 border border-gold-500/25" : "text-neutral-400"}`}>
-          <Landmark className="h-3 w-3" /> Reserved Bank
-        </button>
+        {!currentUserEmail && (
+          <button onClick={() => setActiveTab("transfer")}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === "transfer" ? "bg-gold-500/15 text-gold-400 border border-gold-500/25" : "text-neutral-400"}`}>
+            <Landmark className="h-3 w-3" /> Reserved Bank
+          </button>
+        )}
       </div>
 
       {/* ── TOP UP TAB ── */}

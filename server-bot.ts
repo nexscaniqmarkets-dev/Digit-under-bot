@@ -198,9 +198,11 @@ class ServerBot {
     this.initializeSymbolStates();
     this.startSilenceMonitor();
     
-    // Pre-populate initial balance representation if using demo/simulated mode
+    // Only set demo balance if not already loaded from persistence
     if (this.config.demoMode || !this.config.apiToken) {
-      this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+      if (!this.balance || this.balance === "0.00") {
+        this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+      }
       this.accountEmail = "demo.testing@deriv.com";
       this.isRealAccount = false;
     }
@@ -209,6 +211,14 @@ class ServerBot {
   // Clean up intervals when bot instance is destroyed
   public setBankBalance(amount: number) {
     this.bankBalance = amount;
+  }
+
+  public restoreDemoBalance(amount: number) {
+    // Only restore if currently in demo/sandbox mode
+    if (!this.config.apiToken || this.config.demoMode) {
+      this.config.demoBalance = amount;
+      this.balance = amount.toFixed(2);
+    }
   }
 
   public destroy() {
@@ -539,7 +549,9 @@ class ServerBot {
     this.isRealAccount = false;
     this.connectionStatus = "disconnected";
     this.derivWsUrl = null;
-    this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+    // Preserve existing demo balance — don't reset unless explicitly requested
+    const savedDemoBalance = this.config.demoBalance ?? 10000.00;
+    this.balance = savedDemoBalance.toFixed(2);
     // Clear token so sandbox trades go through virtual contract path
     this.config = { ...this.config, apiToken: "", demoMode: true };
     this.showToast("Switched to Sandbox Demo mode.", "blue");

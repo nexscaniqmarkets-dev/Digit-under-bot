@@ -1107,6 +1107,13 @@ class ServerBot {
 
     if (this.botState === "STATE_SCANNING" || this.botState === "STATE_CONFIRMING") {
       this.checkAndSwitchSymbol();
+      return;
+    }
+
+    // Also allow Pro scan mode to process ticks even when activeSymbol is null
+    if (this.config.mode === "GradualRecoveryPro" && this.recoverySignalThreshold > 0 && !this.activeSymbol) {
+      this.checkAndSwitchSymbol();
+      return;
     }
 
     // Confirmation tracking state
@@ -1164,7 +1171,13 @@ class ServerBot {
       return;
     }
 
-    if (this.consecutiveLosses > 0 || this.inRecovery) {
+    // In GradualRecoveryPro after 2+ losses — allow scanning all markets for 75%+ signal
+    // We detect this by checking recoverySignalThreshold > 0 AND activeSymbol is null (set by loss handler)
+    const isProScanMode = this.config.mode === "GradualRecoveryPro"
+      && this.recoverySignalThreshold > 0;
+
+    // For all other recovery modes — stay locked on current symbol
+    if ((this.consecutiveLosses > 0 || this.inRecovery) && !isProScanMode) {
       return;
     }
 
@@ -1561,7 +1574,12 @@ class ServerBot {
           this.symbolStates[this.activeSymbol].confirmationCounter = 0;
         }
         
-        this.showToast(`Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Stayed locked on ${symbol || this.activeSymbol}. Waiting for tick confirmation criteria...`, "blue");
+        this.showToast(
+          this.config.mode === "GradualRecoveryPro" && this.consecutiveLosses >= 2
+            ? `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Scanning ALL markets for 75%+ signal...`
+            : `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Stayed locked on ${symbol || this.activeSymbol}. Waiting for tick confirmation criteria...`,
+          "blue"
+        );
       } else {
         // Session successfully completed! Back to baseline and scan for best available pair.
         this.sequenceDone = 0;

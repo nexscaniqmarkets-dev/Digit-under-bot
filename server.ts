@@ -158,7 +158,16 @@ async function startServer() {
     // Always sync bank balance from DB on state fetch
     const bankBal = await getBankBalance(telegramId);
     bot.setBankBalance(bankBal);
-    res.json(bot.getFullState());
+    const state = bot.getFullState();
+    // Persist demoBalance to MongoDB so it survives redeploys
+    if (state.config?.demoBalance !== undefined && sessionsCollection) {
+      sessionsCollection.updateOne(
+        { telegramId },
+        { $set: { demoBalance: state.config.demoBalance } },
+        { upsert: true }
+      ).catch(() => {});
+    }
+    res.json(state);
   });
 
   app.post("/api/auth/login", async (req, res) => {
@@ -222,6 +231,21 @@ async function startServer() {
     const bot = getBot(req);
     const result = bot.switchToDemo();
     res.json({ ...result, state: bot.getFullState() });
+  });
+
+  // ── Sandbox State Restore ─────────────────────────────────────────────────
+  app.post("/api/auth/restore-sandbox", async (req, res) => {
+    const { telegramId } = req.body;
+    if (!telegramId) return res.json({ success: false });
+    const bot = botManager.getBot(String(telegramId));
+    if (sessionsCollection) {
+      try {
+        const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
+        if (doc?.bankBalance) bot.setBankBalance(doc.bankBalance);
+        if (doc?.demoBalance) bot.restoreDemoBalance(doc.demoBalance);
+      } catch {}
+    }
+    res.json({ success: true, state: bot.getFullState() });
   });
 
   app.post("/api/auth/save-session", async (req, res) => {

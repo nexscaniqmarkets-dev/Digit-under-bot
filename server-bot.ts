@@ -1200,11 +1200,16 @@ class ServerBot {
       && this.recoverySignalThreshold > 0
       && this.activeSymbol === null;
 
+    // Pro mode after loss 1 — allow normal scanning (no threshold change yet)
+    const isProLoss1 = this.config.mode === "GradualRecoveryPro"
+      && this.inRecovery
+      && this.recoverySignalThreshold === 0;
+
     // Standard mode after loss — allow symbol switching (signal tightening handles entry quality)
     const isStandardRecovery = this.config.mode === "Standard" && this.inRecovery;
 
     // For Split-M Classic and Lite — stay locked on current symbol during recovery
-    if ((this.consecutiveLosses > 0 || this.inRecovery) && !isProScanMode && !isStandardRecovery) {
+    if ((this.consecutiveLosses > 0 || this.inRecovery) && !isProScanMode && !isStandardRecovery && !isProLoss1) {
       return;
     }
 

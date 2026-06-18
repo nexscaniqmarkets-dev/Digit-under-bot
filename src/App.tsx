@@ -111,6 +111,13 @@ export default function App() {
           .then((data) => {
             if (data.success) {
               console.log("[Session] Auto-login successful for", tgUser.username);
+            } else {
+              // No Deriv session — restore sandbox demo balance and bank from MongoDB
+              fetch("/api/auth/restore-sandbox", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ telegramId: tgUser.id }),
+              }).catch(() => {});
             }
           })
           .catch(() => {});

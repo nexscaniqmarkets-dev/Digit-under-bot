@@ -152,9 +152,12 @@ async function startServer() {
 
   // ── Bot REST API ─────────────────────────────────────────────────────────────
 
-  app.get("/api/bot/state", (req, res) => {
+  app.get("/api/bot/state", async (req, res) => {
     const telegramId = req.query?.telegramId as string || "default";
     const bot = botManager.getBot(telegramId);
+    // Always sync bank balance from DB on state fetch
+    const bankBal = await getBankBalance(telegramId);
+    bot.setBankBalance(bankBal);
     res.json(bot.getFullState());
   });
 

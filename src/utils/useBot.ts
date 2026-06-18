@@ -273,8 +273,12 @@ export function useBot() {
 
   // Main background syncing cycle
   useEffect(() => {
-    // Note: auto-login is now handled in App.tsx via Telegram ID session
-    // localStorage-based auto-login removed to prevent conflicts with logout
+    // Restore sandbox demo balance and bank balance from MongoDB on mount
+    fetch("/api/auth/restore-sandbox", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telegramId: getTelegramId() }),
+    }).catch(() => {});
 
     // Sync immediately
     syncStateWithServer();

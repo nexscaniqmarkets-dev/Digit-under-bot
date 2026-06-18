@@ -1200,16 +1200,14 @@ class ServerBot {
       && this.recoverySignalThreshold > 0
       && this.activeSymbol === null;
 
-    // Pro mode after loss 1 — allow normal scanning (no threshold change yet)
-    const isProLoss1 = this.config.mode === "GradualRecoveryPro"
-      && this.inRecovery
-      && this.recoverySignalThreshold === 0;
-
     // Standard mode after loss — allow symbol switching (signal tightening handles entry quality)
     const isStandardRecovery = this.config.mode === "Standard" && this.inRecovery;
 
+    // Pro mode after any loss — allow scanning with tightened threshold
+    const isProRecovery = this.config.mode === "GradualRecoveryPro" && this.inRecovery;
+
     // For Split-M Classic and Lite — stay locked on current symbol during recovery
-    if ((this.consecutiveLosses > 0 || this.inRecovery) && !isProScanMode && !isStandardRecovery && !isProLoss1) {
+    if ((this.consecutiveLosses > 0 || this.inRecovery) && !isProScanMode && !isStandardRecovery && !isProRecovery) {
       return;
     }
 
@@ -1426,6 +1424,7 @@ class ServerBot {
       this.balance = nextDemoBalance.toFixed(2);
       this.saveConfigPersistence();
     }
+    }
 
     // Save Logs
     const nextId = this.tradeLogs.length > 0 ? Math.max(...this.tradeLogs.map(l => l.id)) + 1 : 1;
@@ -1506,10 +1505,11 @@ class ServerBot {
           this.showToast(`WIN! +$${profit.toFixed(2)}. Split-M ${modeLabel} — Full recovery achieved! Back to base stake.`, "green");
         } else {
           // Partial recovery — WIN resets threshold back to normal (65%)
-          // Only raise threshold again if we get 2 more consecutive losses
+          // Only raise threshold again if we get more consecutive losses
           this.inRecovery = true;
           this.recoverySignalThreshold = 0;
           this.recoveryConfirmationsRequired = 0;
+          this.consecutiveLosses = 0;
           const pFactor = this.getPayoutFactor();
           const splitRatio = this.config.mode === "GradualRecoveryLite" ? 4 : 2;
           const nextStake = ((this.accumulatedLoss / splitRatio + this.config.stakeAmount) / pFactor);
@@ -1574,12 +1574,14 @@ class ServerBot {
         if (this.consecutiveLosses >= 2) {
           this.recoverySignalThreshold = 75;
           this.recoveryConfirmationsRequired = 3;
-          // Unlock symbol so bot scans ALL markets for strongest 75%+ signal
           this.activeSymbol = null;
           this.botState = "STATE_SCANNING";
           recoveryMsg = ` ⚠️ 2 losses — scanning ALL markets for best 75%+ signal with 3 confirmations. Next stake: $${nextGradualStake.toFixed(2)}.`;
         } else {
-          recoveryMsg = ` Split-M Pro: Targeting 50% recovery. Next stake: $${nextGradualStake.toFixed(2)}.`;
+          // Loss 1 — intermediate threshold: 70%/2 confirmations (more careful than normal)
+          this.recoverySignalThreshold = 70;
+          this.recoveryConfirmationsRequired = 2;
+          recoveryMsg = ` Split-M Pro: Loss 1 — raised to 70% threshold. Next stake: $${nextGradualStake.toFixed(2)}.`;
         }
       } else if (this.config.mode === "GradualRecoveryLite") {
         this.inRecovery = true;
@@ -1619,12 +1621,19 @@ class ServerBot {
           this.symbolStates[this.activeSymbol].confirmationCounter = 0;
         }
 
-        // Pro mode after 2+ losses — already set to STATE_SCANNING with activeSymbol=null above
+        // Pro mode after 2+ losses — scan all markets for 75%+ signal
         if (this.config.mode === "GradualRecoveryPro" && this.consecutiveLosses >= 2) {
           this.botState = "STATE_SCANNING";
           this.activeSymbol = null;
           this.showToast(
             `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Scanning ALL markets for 75%+ signal...`,
+            "blue"
+          );
+        } else if (this.config.mode === "GradualRecoveryPro" && this.consecutiveLosses === 1) {
+          // Pro mode loss 1 — scan all markets for 70%+ signal
+          this.botState = "STATE_SCANNING";
+          this.showToast(
+            `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Scanning for 70%+ signal...`,
             "blue"
           );
         } else if (this.config.mode === "GradualRecovery" || this.config.mode === "GradualRecoveryLite") {

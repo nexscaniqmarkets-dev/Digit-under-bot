@@ -1172,16 +1172,21 @@ class ServerBot {
         } else {
           if (currentActive.confirmationCounter > 0) {
             currentActive.confirmationCounter = 0;
-            this.showToast(`Signal too low (${currentActive.underPct}% < ${activeThreshold}% required): reset confirm.`, "grey");
+            this.showToast(`Signal dropped (${currentActive.underPct}% < ${activeThreshold}% required) — scanning for better pair.`, "grey");
           }
-          // In Pro scan mode after 2 losses — unlock symbol to scan all markets again
-          if (this.config.mode === "GradualRecoveryPro" && this.recoverySignalThreshold > 0) {
-            this.activeSymbol = null;
-            this.botState = "STATE_SCANNING";
-            this.showToast("Signal dropped below 75% — scanning all markets again.", "grey");
-          } else {
-            // Standard, Classic, Lite — call checkAndSwitchSymbol normally
+          // Force immediate symbol switch — don't wait for next tick
+          // This applies to ALL modes including Classic/Lite during recovery
+          // The only exception is when we're already trading or awaiting settlement
+          if (!this.awaitingSettlement && this.botState !== "STATE_TRADING") {
+            // Temporarily allow switching even in Classic/Lite recovery
+            const savedInRecovery = this.inRecovery;
+            const savedConsecutiveLosses = this.consecutiveLosses;
+            this.inRecovery = false;
+            this.consecutiveLosses = 0;
             this.checkAndSwitchSymbol();
+            // Restore recovery state after switch check
+            this.inRecovery = savedInRecovery;
+            this.consecutiveLosses = savedConsecutiveLosses;
           }
         }
       }
@@ -1236,7 +1241,6 @@ class ServerBot {
 
   private getBestQualifiedSymbol(): SymbolState | null {
     const list = Object.values(this.symbolStates);
-    // Use tightened threshold if in recovery mode
     const activeThreshold = this.recoverySignalThreshold > 0
       ? this.recoverySignalThreshold
       : this.config.minUnderPercentage;
@@ -1251,15 +1255,18 @@ class ServerBot {
 
     qualified.sort((a, b) => b.underPct - a.underPct);
     const candidate = qualified[0];
-    
+
+    // Only prefer current symbol if it STILL meets the threshold
+    // If it dropped below threshold, always switch to the best qualified symbol
     if (this.activeSymbol && this.symbolStates[this.activeSymbol]) {
       const currentObj = this.symbolStates[this.activeSymbol];
-      if (candidate.underPct <= currentObj.underPct && currentObj.underPct >= activeThreshold && !currentObj.isClosed) {
-        return currentObj;
+      const currentStillQualifies = currentObj.underPct >= activeThreshold && !currentObj.isClosed;
+      if (currentStillQualifies && candidate.underPct <= currentObj.underPct) {
+        return currentObj; // current symbol is still best — no need to switch
       }
     }
 
-    return candidate;
+    return candidate; // switch to better symbol
   }
 
   private getPayoutFactor(): number {

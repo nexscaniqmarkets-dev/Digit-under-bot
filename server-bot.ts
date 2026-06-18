@@ -1424,7 +1424,6 @@ class ServerBot {
       this.balance = nextDemoBalance.toFixed(2);
       this.saveConfigPersistence();
     }
-    }
 
     // Save Logs
     const nextId = this.tradeLogs.length > 0 ? Math.max(...this.tradeLogs.map(l => l.id)) + 1 : 1;

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, CheckCircle, XCircle, Loader, Landmark, ArrowRightLeft } from "lucide-react";
+import { Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, CheckCircle, XCircle, Loader, Landmark } from "lucide-react";
 
 interface FundsPanelProps {
   balance: string | null;
@@ -13,10 +13,8 @@ interface FundsPanelProps {
   onBalanceRefresh: () => void;
 }
 
-type Tab = "topup" | "transfer";
+type Tab = "transfer";
 type Status = "idle" | "loading" | "success" | "error";
-
-const TOPUP_AMOUNTS = [1000, 5000, 10000, 50000];
 
 export default function FundsPanel({
   balance,
@@ -29,9 +27,9 @@ export default function FundsPanel({
   onSwitchToDeriv,
   onBalanceRefresh,
 }: FundsPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("topup");
+  const [activeTab, setActiveTab] = useState<Tab>("transfer");
 
-  // Top up state
+  // Top up state - kept for type compatibility but tab removed
   const [topupAmount, setTopupAmount] = useState<number>(10000);
   const [topupStatus, setTopupStatus] = useState<Status>("idle");
   const [topupMessage, setTopupMessage] = useState("");
@@ -83,34 +81,6 @@ export default function FundsPanel({
       .then(data => setBankBalance(data.balance ?? 0))
       .catch(() => {});
   }, [telegramId]);
-
-  // ── Top Up Demo Balance ─────────────────────────────────────────────────────
-  async function handleTopUp() {
-    if (!apiToken) { setTopupStatus("error"); setTopupMessage("Not connected to Deriv. Please login first."); return; }
-    setTopupStatus("loading"); setTopupMessage("");
-    try {
-      const ws = new WebSocket(`wss://ws.binaryws.com/websockets/v3?app_id=1089`);
-      ws.onopen = () => ws.send(JSON.stringify({ authorize: apiToken }));
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.msg_type === "authorize") {
-          if (data.error) { setTopupStatus("error"); setTopupMessage(`Auth failed: ${data.error.message}`); ws.close(); return; }
-          ws.send(JSON.stringify({ topup_virtual: 1 }));
-        }
-        if (data.msg_type === "topup_virtual") {
-          ws.close();
-          if (data.error) { setTopupStatus("error"); setTopupMessage(`Top up failed: ${data.error.message}`); }
-          else {
-            setTopupStatus("success");
-            const newBal = data.topup_virtual?.balance?.toFixed(2) ?? "—";
-            setTopupMessage(`✅ Demo balance topped up! New balance: $${newBal}`);
-            onBalanceRefresh();
-          }
-        }
-      };
-      ws.onerror = () => { setTopupStatus("error"); setTopupMessage("Connection error."); ws.close(); };
-    } catch { setTopupStatus("error"); setTopupMessage("Unexpected error."); }
-  }
 
   // ── Transfer (Demo ↔ Reserved Bank) ────────────────────────────────────────
   async function handleTransfer() {
@@ -242,52 +212,12 @@ export default function FundsPanel({
         )}
       </div>
 
-      {/* Tab Switcher */}
-      <div className="flex bg-bg-card border border-white/[0.07] rounded-xl p-1 gap-1">
-        <button onClick={() => setActiveTab("topup")}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === "topup" ? "bg-gold-500/15 text-gold-400 border border-gold-500/25" : "text-neutral-400"}`}>
-          <ArrowDownCircle className="h-3 w-3" /> Top Up Demo
-        </button>
-        {!currentUserEmail && (
-          <button onClick={() => setActiveTab("transfer")}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === "transfer" ? "bg-gold-500/15 text-gold-400 border border-gold-500/25" : "text-neutral-400"}`}>
+      {/* Tab Switcher - Reserved Bank only */}
+      {!currentUserEmail && (
+        <div className="bg-bg-card border border-white/[0.07] rounded-xl p-1">
+          <div className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider text-gold-400">
             <Landmark className="h-3 w-3" /> Reserved Bank
-          </button>
-        )}
-      </div>
-
-      {/* ── TOP UP TAB ── */}
-      {activeTab === "topup" && (
-        <div className="bg-bg-card border border-white/[0.07] rounded-xl p-4 space-y-4">
-          <p className="text-[11px] text-neutral-400 leading-relaxed">
-            Adds virtual funds to your Deriv demo account via the official Deriv API. Only works on demo accounts.
-          </p>
-          {isRealAccount && (
-            <div className="p-3 bg-orange-500/10 border border-orange-500/25 rounded-lg">
-              <p className="text-[11px] text-orange-400 font-semibold">⚠️ Real Account — Top up unavailable.</p>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-2">
-            {TOPUP_AMOUNTS.map((amt) => (
-              <button key={amt} onClick={() => setTopupAmount(amt)}
-                className={`py-2.5 rounded-lg text-xs font-bold border transition-all ${topupAmount === amt ? "bg-gold-500/15 border-gold-500/40 text-gold-400" : "bg-white/5 border-white/10 text-neutral-400"}`}>
-                ${amt.toLocaleString()}
-              </button>
-            ))}
           </div>
-          <input type="number" placeholder="Or enter custom amount"
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-gold-500/40"
-            onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) setTopupAmount(v); }} />
-          {topupMessage && (
-            <div className={`p-3 rounded-lg flex items-start gap-2 ${topupStatus === "success" ? "bg-green-500/10 border border-green-500/25" : "bg-red-500/10 border border-red-500/25"}`}>
-              {topupStatus === "success" ? <CheckCircle className="h-4 w-4 text-green-400 shrink-0 mt-0.5" /> : <XCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />}
-              <p className={`text-[11px] ${topupStatus === "success" ? "text-green-300" : "text-red-300"}`}>{topupMessage}</p>
-            </div>
-          )}
-          <button onClick={handleTopUp} disabled={topupStatus === "loading" || isRealAccount}
-            className="w-full py-3 rounded-xl bg-gold-500 text-black font-bold text-sm uppercase tracking-wider disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95">
-            {topupStatus === "loading" ? <><Loader className="h-4 w-4 animate-spin" /> Processing...</> : <><ArrowDownCircle className="h-4 w-4" /> Top Up ${topupAmount.toLocaleString()}</>}
-          </button>
         </div>
       )}
 

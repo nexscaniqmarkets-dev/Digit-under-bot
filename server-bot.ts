@@ -133,7 +133,8 @@ const DEFAULT_CONFIG: BotConfig = {
   takeProfit: 6.0,
   maxDailyTrades: 50,
   selectedSymbol: "1HZ100V",
-  mode: "Standard",
+  mode: "GradualRecoveryProLite",
+  showAllModes: false,
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -686,6 +687,10 @@ class ServerBot {
 
   public updateConfig(newConfig: Partial<BotConfig>) {
     this.config = { ...this.config, ...newConfig };
+    // Enforce single-mode lock: when showAllModes is off, always force Split-M Pro Lite
+    if (!this.config.showAllModes) {
+      this.config.mode = "GradualRecoveryProLite";
+    }
     this.saveConfigPersistence();
     this.showToast("Configuration parameters updated.", "blue");
   }

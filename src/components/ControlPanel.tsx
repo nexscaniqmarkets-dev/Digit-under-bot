@@ -29,7 +29,7 @@ export default function ControlPanel({
   const isRunning = botState !== "STATE_IDLE" && botState !== "STATE_STOPPED";
 
   // Mode change handler
-  const handleModeChange = (mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite") => {
+  const handleModeChange = (mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite" | "GradualRecoveryProLite") => {
     onConfigChange({ ...config, mode });
   };
 
@@ -159,6 +159,19 @@ export default function ControlPanel({
                 title="Split-Martingale Lite — 25% recovery per trade, lower stakes"
               >
                 Split-M Lite
+              </button>
+              <button
+                type="button"
+                disabled={isRunning}
+                onClick={() => handleModeChange("GradualRecoveryProLite")}
+                className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
+                  config.mode === "GradualRecoveryProLite"
+                    ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
+                    : "text-neutral-500 hover:text-white"
+                } disabled:opacity-50`}
+                title="Split-Martingale Pro Lite — Pro's signal tightening + Lite's 25% recovery target"
+              >
+                Split-M Pro Lite
               </button>
             </div>
           </div>

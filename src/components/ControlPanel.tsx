@@ -108,7 +108,8 @@ export default function ControlPanel({
             <span className="text-[9px] font-bold text-neutral-400 tracking-widest uppercase flex items-center gap-1.5 font-sans">
               <Layers className="h-3.5 w-3.5" /> Engine Controller
             </span>
-            <div className="flex flex-wrap gap-1 p-1 bg-[#121216] rounded-lg border border-white/[0.06] select-none max-w-full">
+            {config.showAllModes ? (
+              <div className="flex flex-wrap gap-1 p-1 bg-[#121216] rounded-lg border border-white/[0.06] select-none max-w-full">
               <button
                 type="button"
                 disabled={isRunning}
@@ -173,6 +174,33 @@ export default function ControlPanel({
               >
                 Split-M Pro Lite
               </button>
+              </div>
+            ) : (
+              <div className="px-2.5 py-1 rounded-md bg-gold-500/10 border border-gold-500/20 text-[9px] font-bold uppercase tracking-wider text-gold-500">
+                Split-M Pro Lite
+              </div>
+            )}
+          </div>
+
+          {/* Quick Stake Amount Editor */}
+          <div className="flex items-center justify-between gap-3 p-3 bg-[#121216] rounded-lg border border-white/[0.06] mb-1">
+            <span className="text-[9px] font-bold text-neutral-400 tracking-widest uppercase">Stake Amount</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-gold-500 text-sm font-bold">$</span>
+              <input
+                type="number"
+                min="0.35"
+                step="0.5"
+                disabled={isRunning}
+                value={config.stakeAmount}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val) && val >= 0) {
+                    onConfigChange({ ...config, stakeAmount: val });
+                  }
+                }}
+                className="w-20 bg-[#0d0d0f] border border-white/[0.1] rounded-md px-2 py-1 text-sm text-white font-bold text-right focus:outline-none focus:border-gold-500 disabled:opacity-50"
+              />
             </div>
           </div>
 

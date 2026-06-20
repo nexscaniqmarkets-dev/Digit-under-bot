@@ -288,9 +288,16 @@ export default function App() {
                     <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
                     <p>
                       <span className="font-bold text-white mr-1.5 uppercase">Sandbox Demo Mode:</span>
-                      You have a saved Deriv account. Use the toggle in the Funds tab to switch back anytime.
+                      You have a saved Deriv account. Use the toggle in the Funds tab to switch back, or log in again if your token changed.
                     </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setBypassAuth(false)}
+                    className="px-3.5 py-1.5 bg-gold-500/10 hover:bg-gold-500 hover:text-black border border-gold-500/25 rounded-lg text-gold-400 text-[10px] font-bold uppercase transition-all shrink-0 cursor-pointer"
+                  >
+                    Re-login
+                  </button>
                 </div>
               )}
               {!currentUserEmail && bypassAuth && !hasSavedDerivSession && (

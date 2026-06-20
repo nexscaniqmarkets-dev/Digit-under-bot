@@ -139,6 +139,18 @@ async function setBankBalanceDB(telegramId: string, amount: number): Promise<voi
 async function startServer() {
   await connectMongo();
 
+  // Register a global handler so EVERY trade settlement immediately persists
+  // the sandbox demo balance to MongoDB — not just on polling. This guarantees
+  // no trade result is ever lost even if the app closes the instant after a trade.
+  botManager.setGlobalBalanceChangeHandler((telegramId, balance) => {
+    if (!sessionsCollection) return;
+    sessionsCollection.updateOne(
+      { telegramId },
+      { $set: { demoBalance: balance } },
+      { upsert: true }
+    ).catch((e) => console.error("[MongoDB] Immediate balance save failed:", e));
+  });
+
   const app = express();
   const PORT = Number(process.env.PORT ?? 3000);
 

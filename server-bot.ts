@@ -153,6 +153,8 @@ class ServerBot {
   private bankBalance: number = 0;
   private sandboxBalance: number = 10000.00; // Isolated sandbox demo balance
   private derivBalance: string | null = null; // Isolated Deriv account balance
+  // Callback to persist demoBalance to MongoDB immediately after trades (set by server.ts)
+  public onBalanceChange: ((telegramId: string, balance: number) => void) | null = null;
   // Signal tightening after losses (Standard mode + Split-M Pro)
   private recoverySignalThreshold: number = 0;
   private recoveryConfirmationsRequired: number = 0;
@@ -1453,6 +1455,10 @@ class ServerBot {
       this.config.demoBalance = this.sandboxBalance;
       this.balance = this.sandboxBalance.toFixed(2);
       this.saveConfigPersistence();
+      // Immediately persist to MongoDB so no trade result is ever lost, even if app closes instantly
+      if (this.onBalanceChange) {
+        this.onBalanceChange(this.telegramId, this.sandboxBalance);
+      }
     }
 
     // Save Logs
@@ -1817,10 +1823,20 @@ class ServerBot {
 class BotManager {
   private bots: Map<string, { bot: ServerBot; lastActive: number }> = new Map();
   private readonly TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+  private globalOnBalanceChange: ((telegramId: string, balance: number) => void) | null = null;
 
   constructor() {
     // Cleanup inactive bots every 10 minutes
     setInterval(() => this.cleanup(), 10 * 60 * 1000);
+  }
+
+  // Register a callback (e.g. MongoDB save) applied to every bot instance, present and future
+  setGlobalBalanceChangeHandler(handler: (telegramId: string, balance: number) => void) {
+    this.globalOnBalanceChange = handler;
+    // Apply to any bots already created
+    for (const entry of this.bots.values()) {
+      entry.bot.onBalanceChange = handler;
+    }
   }
 
   getBot(telegramId: string): ServerBot {
@@ -1831,6 +1847,9 @@ class BotManager {
     }
     console.log(`[BotManager] Creating new bot instance for user ${telegramId}`);
     const bot = new ServerBot(telegramId);
+    if (this.globalOnBalanceChange) {
+      bot.onBalanceChange = this.globalOnBalanceChange;
+    }
     this.bots.set(telegramId, { bot, lastActive: Date.now() });
     return bot;
   }

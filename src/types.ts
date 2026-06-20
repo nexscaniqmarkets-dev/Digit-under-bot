@@ -31,6 +31,7 @@ export interface BotConfig {
   maxDailyTrades: number;
   selectedSymbol: string;
   mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite" | "GradualRecoveryProLite";
+  showAllModes?: boolean; // when false, forces GradualRecoveryProLite and hides mode selector
   appId: string;
   apiToken: string;
   demoMode: boolean; // if true, simulates virtual trades inside the bot

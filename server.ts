@@ -297,6 +297,33 @@ async function startServer() {
     res.json({ ...result, state: bot.getFullState() });
   });
 
+  // Dedicated endpoint for the manual toggle switch — always uses saved token,
+  // bypasses the lastMode gate (which is only for app-reopen auto-login)
+  app.post("/api/auth/switch-to-deriv", async (req, res) => {
+    const { telegramId } = req.body;
+    if (!telegramId) return res.json({ success: false });
+    const token = await getSession(String(telegramId));
+    if (!token) return res.json({ success: false, reason: "no_session" });
+    const bot = botManager.getBot(String(telegramId));
+    if (sessionsCollection) {
+      try {
+        const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
+        if (doc?.bankBalance) bot.setBankBalance(doc.bankBalance);
+        if (doc?.demoBalance) bot.restoreDemoBalance(doc.demoBalance);
+      } catch {}
+    }
+    const result = await bot.loginWithToken(token);
+    // Mark this as the active mode so future app-reopens restore Deriv correctly
+    if (result.success && sessionsCollection) {
+      sessionsCollection.updateOne(
+        { telegramId: String(telegramId) },
+        { $set: { lastMode: "deriv" } },
+        { upsert: true }
+      ).catch(() => {});
+    }
+    res.json({ ...result, state: bot.getFullState() });
+  });
+
   // ── Reserved Bank ─────────────────────────────────────────────────────────────
 
   app.get("/api/bank/balance", async (req, res) => {

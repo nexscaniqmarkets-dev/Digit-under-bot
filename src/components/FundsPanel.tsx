@@ -158,20 +158,26 @@ export default function FundsPanel({
       {/* Balance Cards */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-bg-card border border-green-500/20 rounded-xl p-3">
-          <p className="text-[9px] text-neutral-400 uppercase tracking-widest mb-1">Available Balance</p>
+          <p className="text-[9px] text-neutral-400 uppercase tracking-widest mb-1">
+            {isOnDeriv ? "Deriv Balance" : "Available Balance"}
+          </p>
           <p className="text-xl font-bold text-green-400">${availableBalance.toFixed(2)}</p>
-          <p className="text-[9px] text-neutral-500 mt-0.5">Total: ${actualBalance.toFixed(2)}</p>
-        </div>
-        <div className="bg-bg-card border border-gold-500/20 rounded-xl p-3">
-          <p className="text-[9px] text-neutral-400 uppercase tracking-widest mb-1">Reserved Bank</p>
-          <p className="text-xl font-bold text-gold-400">${bankBalance.toFixed(2)}</p>
-          {bankBalance > 0 && (
-            <button onClick={handleResetBank} disabled={transferLoading}
-              className="text-[9px] text-red-400 mt-0.5 underline">
-              Reset bank
-            </button>
+          {!isOnDeriv && (
+            <p className="text-[9px] text-neutral-500 mt-0.5">Total: ${actualBalance.toFixed(2)}</p>
           )}
         </div>
+        {!isOnDeriv && (
+          <div className="bg-bg-card border border-gold-500/20 rounded-xl p-3">
+            <p className="text-[9px] text-neutral-400 uppercase tracking-widest mb-1">Reserved Bank</p>
+            <p className="text-xl font-bold text-gold-400">${bankBalance.toFixed(2)}</p>
+            {bankBalance > 0 && (
+              <button onClick={handleResetBank} disabled={transferLoading}
+                className="text-[9px] text-red-400 mt-0.5 underline">
+                Reset bank
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Account Mode Toggle */}
@@ -212,8 +218,8 @@ export default function FundsPanel({
         )}
       </div>
 
-      {/* Tab Switcher - Reserved Bank only */}
-      {!currentUserEmail && (
+      {/* Tab Switcher - Reserved Bank only (sandbox mode) */}
+      {!isOnDeriv && (
         <div className="bg-bg-card border border-white/[0.07] rounded-xl p-1">
           <div className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider text-gold-400">
             <Landmark className="h-3 w-3" /> Reserved Bank
@@ -221,8 +227,16 @@ export default function FundsPanel({
         </div>
       )}
 
+      {isOnDeriv && (
+        <div className="bg-bg-card border border-white/[0.07] rounded-xl p-4">
+          <p className="text-[11px] text-neutral-400 leading-relaxed">
+            The Reserved Bank is a sandbox-only feature for protecting virtual capital during testing. Switch to Sandbox Demo to use it.
+          </p>
+        </div>
+      )}
+
       {/* ── RESERVED BANK TAB ── */}
-      {activeTab === "transfer" && (
+      {activeTab === "transfer" && !isOnDeriv && (
         <div className="bg-bg-card border border-white/[0.07] rounded-xl p-4 space-y-4">
           <div>
             <p className="text-xs text-neutral-300 mb-1 font-semibold">Reserved Bank</p>

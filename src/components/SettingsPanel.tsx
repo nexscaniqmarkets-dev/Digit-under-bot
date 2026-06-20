@@ -139,23 +139,49 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                 <span className="text-[8.5px] text-neutral-500 leading-normal uppercase">Bot buys DIGITUNDER contract (losing on values &gt;= {formData.referenceDigit})</span>
               </div>
 
-              {/* Mode Selection */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
-                  Stake &amp; Recovery Mode
-                </label>
-                <select
-                  value={formData.mode}
-                  onChange={(e) => handleInputChange("mode", e.target.value as any)}
-                  className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-gold-500 cursor-pointer"
-                >
-                  <option value="Standard">Standard (Fixed stakes)</option>
-                  <option value="Martingale">Martingale (Double on loss)</option>
-                  <option value="PayoutAdaptive">Payout-Aware Adaptive Multiplier (Dynamic Smart Recovery)</option>
-                  <option value="DAlembert">The D'Alembert System (Linear scaling steps)</option>
-                  <option value="GradualRecovery">The Gradual Loss Recovery (Split-Martingale 2-Stage)</option>
-                </select>
+              {/* Show All Trading Modes Toggle */}
+              <div className="flex items-center justify-between p-3 bg-[#131317] rounded-lg border border-white/[0.06]">
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-bold text-white uppercase tracking-widest">Show All Trading Modes</span>
+                  <span className="text-[8.5px] text-neutral-500 font-medium leading-snug mt-1">
+                    {formData.showAllModes
+                      ? "All 5 modes available for selection"
+                      : "Locked to Split-M Pro Lite (recommended default)"}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!formData.showAllModes}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    handleInputChange("showAllModes", checked);
+                    if (!checked) {
+                      handleInputChange("mode", "GradualRecoveryProLite");
+                    }
+                  }}
+                  className="h-4 w-4 rounded text-gold-500 focus:ring-0 focus:ring-offset-0 accent-gold-500 bg-[#0d0d0f] border-white/[0.1] cursor-pointer"
+                />
               </div>
+
+              {/* Mode Selection — only shown when Show All Modes is enabled */}
+              {formData.showAllModes && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
+                    Stake &amp; Recovery Mode
+                  </label>
+                  <select
+                    value={formData.mode}
+                    onChange={(e) => handleInputChange("mode", e.target.value as any)}
+                    className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-gold-500 cursor-pointer"
+                  >
+                    <option value="Standard">Standard (Fixed stakes)</option>
+                    <option value="GradualRecovery">Split-M Classic (50% recovery)</option>
+                    <option value="GradualRecoveryPro">Split-M Pro (50% recovery + signal tightening)</option>
+                    <option value="GradualRecoveryLite">Split-M Lite (25% recovery, lower stakes)</option>
+                    <option value="GradualRecoveryProLite">Split-M Pro Lite (25% recovery + signal tightening)</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* COLUMN 2: Scanning threshold factors */}

@@ -151,6 +151,8 @@ class ServerBot {
   private telegramId: string;
   private accountCurrency: string = "USD";
   private bankBalance: number = 0;
+  private sandboxBalance: number = 10000.00; // Isolated sandbox demo balance
+  private derivBalance: string | null = null; // Isolated Deriv account balance
   // Signal tightening after losses (Standard mode + Split-M Pro)
   private recoverySignalThreshold: number = 0;
   private recoveryConfirmationsRequired: number = 0;
@@ -198,10 +200,13 @@ class ServerBot {
     this.initializeSymbolStates();
     this.startSilenceMonitor();
     
-    // Only set demo balance if not already loaded from persistence
+    // Initialize sandbox balance from config persistence
+    this.sandboxBalance = this.config.demoBalance ?? 10000.00;
+
+    // Only set balance display if in sandbox mode
     if (this.config.demoMode || !this.config.apiToken) {
       if (!this.balance || this.balance === "0.00") {
-        this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+        this.balance = this.sandboxBalance.toFixed(2);
       }
       this.accountEmail = "demo.testing@deriv.com";
       this.isRealAccount = false;
@@ -214,9 +219,11 @@ class ServerBot {
   }
 
   public restoreDemoBalance(amount: number) {
-    // Only restore if currently in demo/sandbox mode
+    // Always restore sandbox balance regardless of current mode
+    this.sandboxBalance = amount;
+    this.config.demoBalance = amount;
+    // Only update displayed balance if currently in sandbox mode
     if (!this.config.apiToken || this.config.demoMode) {
-      this.config.demoBalance = amount;
       this.balance = amount.toFixed(2);
     }
   }
@@ -478,6 +485,9 @@ class ServerBot {
       this.haltBot("User context switched via Token Login");
     }
 
+    // Save sandbox balance BEFORE overwriting config
+    const savedSandboxBalance = this.sandboxBalance;
+
     const emailKey = email.toLowerCase().trim();
     const users = this.loadUsers();
     
@@ -510,6 +520,9 @@ class ServerBot {
     this.tradeLogs = user.tradeLogs || [];
     this.isRealAccount = isReal;
 
+    // Restore sandbox balance — never overwrite it with Deriv data
+    this.sandboxBalance = savedSandboxBalance;
+
     // Reset session aggregates
     this.sessionProfit = 0;
     this.dailyTradesCount = 0;
@@ -528,6 +541,7 @@ class ServerBot {
     this.showSummary = false;
     this.sessionStats = null;
 
+    // Set balance to null — will be populated from Deriv WebSocket authorize response
     this.balance = null;
     this.accountEmail = null;
     this.isRealAccount = false;
@@ -544,15 +558,17 @@ class ServerBot {
       try { this.ws.close(); } catch (_) {}
       this.ws = null;
     }
+    // Save current Deriv balance before switching
+    if (this.currentUserEmail) {
+      this.derivBalance = this.balance;
+    }
     this.currentUserEmail = null;
     this.accountEmail = "demo.testing@deriv.com";
     this.isRealAccount = false;
     this.connectionStatus = "disconnected";
     this.derivWsUrl = null;
-    // Preserve existing demo balance — don't reset unless explicitly requested
-    const savedDemoBalance = this.config.demoBalance ?? 10000.00;
-    this.balance = savedDemoBalance.toFixed(2);
-    // Clear token so sandbox trades go through virtual contract path
+    // Restore sandbox balance — completely isolated from Deriv balance
+    this.balance = this.sandboxBalance.toFixed(2);
     this.config = { ...this.config, apiToken: "", demoMode: true };
     this.showToast("Switched to Sandbox Demo mode.", "blue");
     return { success: true, balance: this.balance };
@@ -564,7 +580,9 @@ class ServerBot {
     }
     this.derivWsUrl = null;
     this.currentUserEmail = null;
-    this.config = { ...DEFAULT_CONFIG };
+    // Preserve sandboxBalance — never let it reset via DEFAULT_CONFIG
+    const preservedSandboxBalance = this.sandboxBalance;
+    this.config = { ...DEFAULT_CONFIG, demoBalance: preservedSandboxBalance };
     this.tradeLogs = [];
 
     this.sessionProfit = 0;
@@ -584,7 +602,8 @@ class ServerBot {
     this.showSummary = false;
     this.sessionStats = null;
 
-    this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+    this.sandboxBalance = preservedSandboxBalance;
+    this.balance = preservedSandboxBalance.toFixed(2);
     this.accountEmail = "demo.testing@deriv.com";
     this.isRealAccount = false;
 
@@ -767,7 +786,7 @@ class ServerBot {
       } else {
         // Sandbox demo mode — no auth needed
         this.isRealAccount = false;
-        this.balance = (this.config.demoBalance ?? 10000.00).toFixed(2);
+        this.balance = this.sandboxBalance.toFixed(2);
         this.accountEmail = "demo.testing@deriv.com";
         this.subscribeToSymbols();
       }
@@ -1423,12 +1442,11 @@ class ServerBot {
     const nextDailyTrades = this.dailyTradesCount + 1;
     this.dailyTradesCount = nextDailyTrades;
 
-    // Update balance representation for demo/simulated modes
+    // Update balance for demo/simulated modes — only updates sandboxBalance, never Deriv balance
     if (this.config.demoMode || !this.config.apiToken) {
-      const orig = this.config.demoBalance ?? 10000.00;
-      const nextDemoBalance = Number((orig + profit).toFixed(2));
-      this.config.demoBalance = nextDemoBalance;
-      this.balance = nextDemoBalance.toFixed(2);
+      this.sandboxBalance = Number((this.sandboxBalance + profit).toFixed(2));
+      this.config.demoBalance = this.sandboxBalance;
+      this.balance = this.sandboxBalance.toFixed(2);
       this.saveConfigPersistence();
     }
 
@@ -1756,8 +1774,11 @@ class ServerBot {
   }
 
   public resetDemoBalance() {
+    this.sandboxBalance = 10000.00;
     this.config.demoBalance = 10000.00;
-    this.balance = "10000.00";
+    if (!this.config.apiToken || this.config.demoMode) {
+      this.balance = "10000.00";
+    }
     this.saveConfigPersistence();
     this.showToast("Demo/simulated balance has been reset to $10,000.00", "blue");
   }

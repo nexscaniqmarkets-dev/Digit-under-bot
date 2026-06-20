@@ -161,7 +161,9 @@ export default function FundsPanel({
           <p className="text-[9px] text-neutral-400 uppercase tracking-widest mb-1">
             {isOnDeriv ? "Deriv Balance" : "Available Balance"}
           </p>
-          <p className="text-xl font-bold text-green-400">${availableBalance.toFixed(2)}</p>
+          <p className="text-xl font-bold text-green-400">
+            ${isOnDeriv ? actualBalance.toFixed(2) : availableBalance.toFixed(2)}
+          </p>
           {!isOnDeriv && (
             <p className="text-[9px] text-neutral-500 mt-0.5">Total: ${actualBalance.toFixed(2)}</p>
           )}

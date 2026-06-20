@@ -1142,7 +1142,7 @@ class ServerBot {
     }
 
     // Pro scan mode: when activeSymbol is null, process all ticks to find best market
-    if (this.config.mode === "GradualRecoveryPro" && this.recoverySignalThreshold > 0 && !this.activeSymbol) {
+    if ((this.config.mode === "GradualRecoveryPro" || this.config.mode === "GradualRecoveryProLite") && this.recoverySignalThreshold > 0 && !this.activeSymbol) {
       this.checkAndSwitchSymbol();
       return;
     }
@@ -1217,18 +1217,18 @@ class ServerBot {
       return;
     }
 
-    // In GradualRecoveryPro after 2+ losses — allow scanning all markets for 75%+ signal
+    // In GradualRecoveryPro/ProLite after 2+ losses — allow scanning all markets for 75%+ signal
     // Once a symbol is selected (activeSymbol set), lock onto it for confirmation
     // Only scan freely when activeSymbol is null
-    const isProScanMode = this.config.mode === "GradualRecoveryPro"
+    const isProScanMode = (this.config.mode === "GradualRecoveryPro" || this.config.mode === "GradualRecoveryProLite")
       && this.recoverySignalThreshold > 0
       && this.activeSymbol === null;
 
     // Standard mode after loss — allow symbol switching (signal tightening handles entry quality)
     const isStandardRecovery = this.config.mode === "Standard" && this.inRecovery;
 
-    // Pro mode after any loss — allow scanning with tightened threshold
-    const isProRecovery = this.config.mode === "GradualRecoveryPro" && this.inRecovery;
+    // Pro/ProLite mode after any loss — allow scanning with tightened threshold
+    const isProRecovery = (this.config.mode === "GradualRecoveryPro" || this.config.mode === "GradualRecoveryProLite") && this.inRecovery;
 
     // For Split-M Classic and Lite — stay locked on current symbol during recovery
     if ((this.consecutiveLosses > 0 || this.inRecovery) && !isProScanMode && !isStandardRecovery && !isProRecovery) {
@@ -1327,6 +1327,11 @@ class ServerBot {
         computedStake = Number(((targetRecovery + baseStake) / pFactor).toFixed(2));
       } else if (this.config.mode === "GradualRecoveryLite") {
         // Lite: recover only 25% of accumulated loss per trade — much lower stakes
+        const pFactor = this.getPayoutFactor();
+        const targetRecovery = this.accumulatedLoss / 4;
+        computedStake = Number(((targetRecovery + baseStake) / pFactor).toFixed(2));
+      } else if (this.config.mode === "GradualRecoveryProLite") {
+        // Pro Lite: Pro's signal tightening + Lite's 25% recovery target
         const pFactor = this.getPayoutFactor();
         const targetRecovery = this.accumulatedLoss / 4;
         computedStake = Number(((targetRecovery + baseStake) / pFactor).toFixed(2));
@@ -1513,7 +1518,7 @@ class ServerBot {
           this.inRecovery = true;
           this.showToast(`WIN EXECUTION! Payout: +$${profit.toFixed(2)}. (Trade #${this.sequenceDone + 1}). D'Alembert step decreased to ${this.consecutiveLosses}.`, "green");
         }
-      } else if (this.config.mode === "GradualRecovery" || this.config.mode === "GradualRecoveryPro" || this.config.mode === "GradualRecoveryLite") {
+      } else if (this.config.mode === "GradualRecovery" || this.config.mode === "GradualRecoveryPro" || this.config.mode === "GradualRecoveryLite" || this.config.mode === "GradualRecoveryProLite") {
         this.consecutiveLosses = 0;
         this.accumulatedLoss = Math.max(0, this.accumulatedLoss - profit);
         this.consecutiveWinsInRecovery += 1;
@@ -1525,7 +1530,7 @@ class ServerBot {
           this.consecutiveWinsInRecovery = 0;
           this.recoverySignalThreshold = 0;
           this.recoveryConfirmationsRequired = 0;
-          const modeLabel = this.config.mode === "GradualRecoveryPro" ? "Pro" : this.config.mode === "GradualRecoveryLite" ? "Lite" : "Classic";
+          const modeLabel = this.config.mode === "GradualRecoveryPro" ? "Pro" : this.config.mode === "GradualRecoveryLite" ? "Lite" : this.config.mode === "GradualRecoveryProLite" ? "Pro Lite" : "Classic";
           this.showToast(`WIN! +$${profit.toFixed(2)}. Split-M ${modeLabel} — Full recovery achieved! Back to base stake.`, "green");
         } else {
           // Partial recovery — WIN resets threshold back to normal (65%)
@@ -1535,7 +1540,7 @@ class ServerBot {
           this.recoveryConfirmationsRequired = 0;
           this.consecutiveLosses = 0;
           const pFactor = this.getPayoutFactor();
-          const splitRatio = this.config.mode === "GradualRecoveryLite" ? 4 : 2;
+          const splitRatio = (this.config.mode === "GradualRecoveryLite" || this.config.mode === "GradualRecoveryProLite") ? 4 : 2;
           const nextStake = ((this.accumulatedLoss / splitRatio + this.config.stakeAmount) / pFactor);
           this.multiplier = Number((nextStake / this.config.stakeAmount).toFixed(2));
           this.showToast(`WIN! +$${profit.toFixed(2)}. Remaining to recover: -$${this.accumulatedLoss.toFixed(2)}. Next stake: $${nextStake.toFixed(2)}. Threshold reset to 65%.`, "green");
@@ -1615,6 +1620,27 @@ class ServerBot {
         const nextLiteStake = ((targetRecovery + this.config.stakeAmount) / pFactor);
         this.multiplier = Number((nextLiteStake / this.config.stakeAmount).toFixed(2));
         recoveryMsg = ` Split-M Lite: Targeting 25% recovery. Next stake: $${nextLiteStake.toFixed(2)}.`;
+      } else if (this.config.mode === "GradualRecoveryProLite") {
+        // Pro Lite: Pro's signal tightening + Lite's 25% recovery target
+        this.inRecovery = true;
+        this.consecutiveWinsInRecovery = 0;
+        const pFactor = this.getPayoutFactor();
+        const targetRecovery = this.accumulatedLoss / 4;
+        const nextProLiteStake = ((targetRecovery + this.config.stakeAmount) / pFactor);
+        this.multiplier = Number((nextProLiteStake / this.config.stakeAmount).toFixed(2));
+        // After 2 consecutive losses — tighten signal AND scan all markets for best 75%+ pair
+        if (this.consecutiveLosses >= 2) {
+          this.recoverySignalThreshold = 75;
+          this.recoveryConfirmationsRequired = 3;
+          this.activeSymbol = null;
+          this.botState = "STATE_SCANNING";
+          recoveryMsg = ` ⚠️ 2 losses — scanning ALL markets for best 75%+ signal with 3 confirmations. Next stake: $${nextProLiteStake.toFixed(2)}.`;
+        } else {
+          // Loss 1 — intermediate threshold: 70%/2 confirmations (more careful than normal)
+          this.recoverySignalThreshold = 70;
+          this.recoveryConfirmationsRequired = 2;
+          recoveryMsg = ` Split-M Pro Lite: Loss 1 — raised to 70% threshold, targeting 25% recovery. Next stake: $${nextProLiteStake.toFixed(2)}.`;
+        }
       } else {
         // Standard mode — tighten signal threshold after loss
         this.multiplier = 1;
@@ -1645,16 +1671,16 @@ class ServerBot {
           this.symbolStates[this.activeSymbol].confirmationCounter = 0;
         }
 
-        // Pro mode after 2+ losses — scan all markets for 75%+ signal
-        if (this.config.mode === "GradualRecoveryPro" && this.consecutiveLosses >= 2) {
+        // Pro/ProLite mode after 2+ losses — scan all markets for 75%+ signal
+        if ((this.config.mode === "GradualRecoveryPro" || this.config.mode === "GradualRecoveryProLite") && this.consecutiveLosses >= 2) {
           this.botState = "STATE_SCANNING";
           this.activeSymbol = null;
           this.showToast(
             `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Scanning ALL markets for 75%+ signal...`,
             "blue"
           );
-        } else if (this.config.mode === "GradualRecoveryPro" && this.consecutiveLosses === 1) {
-          // Pro mode loss 1 — scan all markets for 70%+ signal
+        } else if ((this.config.mode === "GradualRecoveryPro" || this.config.mode === "GradualRecoveryProLite") && this.consecutiveLosses === 1) {
+          // Pro/ProLite mode loss 1 — scan all markets for 70%+ signal
           this.botState = "STATE_SCANNING";
           this.showToast(
             `Recovery series active (Trade #${nextSeqDone + 1}) using ${modeLabel} mode. Scanning for 70%+ signal...`,

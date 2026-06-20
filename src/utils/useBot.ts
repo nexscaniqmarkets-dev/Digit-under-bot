@@ -273,12 +273,8 @@ export function useBot() {
 
   // Main background syncing cycle
   useEffect(() => {
-    // Restore sandbox demo balance and bank balance from MongoDB on mount
-    fetch("/api/auth/restore-sandbox", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telegramId: getTelegramId() }),
-    }).catch(() => {});
+    // Note: session/balance restoration is handled sequentially in App.tsx
+    // to avoid race conditions between auto-login and sandbox restore
 
     // Sync immediately
     syncStateWithServer();

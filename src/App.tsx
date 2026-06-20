@@ -69,18 +69,21 @@ export default function App() {
 
   const telegramId = telegramUser?.id ? String(telegramUser.id) : "default";
   const actualBalance = balance ? parseFloat(balance) : null;
-  // Always show available balance (total minus Reserved Bank) for consistency across the app
+  // Reserved Bank only ever applies to sandbox demo — Deriv balance is always shown raw/untouched
   const availableBalance = actualBalance !== null
-    ? Math.max(0, actualBalance - bankBalance).toFixed(2)
+    ? (!currentUserEmail ? Math.max(0, actualBalance - bankBalance).toFixed(2) : actualBalance.toFixed(2))
     : null;
 
-  // Load bank balance whenever user logs in
+  // Load bank balance only in sandbox demo mode — Reserved Bank never applies to Deriv accounts
   useEffect(() => {
-    if ((currentUserEmail || bypassAuth) && telegramId) {
+    if (!currentUserEmail && bypassAuth && telegramId) {
       fetch(`/api/bank/balance?telegramId=${telegramId}`)
         .then(r => r.json())
         .then(data => setBankBalance(data.balance ?? 0))
         .catch(() => {});
+    } else if (currentUserEmail) {
+      // Connected to Deriv — Reserved Bank does not apply, reset to 0 for display purposes
+      setBankBalance(0);
     }
   }, [currentUserEmail, bypassAuth, telegramId]);
 

@@ -66,6 +66,7 @@ export default function App() {
   const [bypassAuth, setBypassAuth] = useState(false);
   const [telegramUser, setTelegramUser] = useState<any>(null);
   const [bankBalance, setBankBalance] = useState<number>(0);
+  const [hasSavedDerivSession, setHasSavedDerivSession] = useState(false);
 
   const telegramId = telegramUser?.id ? String(telegramUser.id) : "default";
   const actualBalance = balance ? parseFloat(balance) : null;
@@ -99,6 +100,15 @@ export default function App() {
         .then((data) => {
           if (data.success) {
             console.log("[Session] Auto-login successful");
+            setHasSavedDerivSession(true);
+          } else if (data.reason === "last_mode_was_demo") {
+            // User has a Deriv session but chose to stay in demo mode
+            setHasSavedDerivSession(true);
+            return fetch("/api/auth/restore-sandbox", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ telegramId: uid }),
+            }).catch(() => {});
           } else {
             // No Deriv session — restore sandbox demo balance and bank from MongoDB
             return fetch("/api/auth/restore-sandbox", {
@@ -255,6 +265,7 @@ export default function App() {
                 onLogin={async (token: string) => {
                   const result = await login(token);
                   if (result.success && telegramUser?.id) {
+                    setHasSavedDerivSession(true);
                     // Save session so user stays logged in next time
                     fetch("/api/auth/save-session", {
                       method: "POST",
@@ -271,7 +282,18 @@ export default function App() {
           ) : (
             <>
               {/* Optional Prompt to Log In when Bypassed (Guest Trial mode) */}
-              {!currentUserEmail && bypassAuth && (
+              {!currentUserEmail && bypassAuth && hasSavedDerivSession && (
+                <div className="bg-white/[0.02] border border-white/[0.05] p-3 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-neutral-400 font-sans text-xs w-full animate-fade-in">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                    <p>
+                      <span className="font-bold text-white mr-1.5 uppercase">Sandbox Demo Mode:</span>
+                      You have a saved Deriv account. Use the toggle in the Funds tab to switch back anytime.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {!currentUserEmail && bypassAuth && !hasSavedDerivSession && (
                 <div className="bg-white/[0.02] border border-white/[0.05] p-3 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-neutral-400 font-sans text-xs w-full animate-fade-in">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />

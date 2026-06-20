@@ -230,6 +230,14 @@ async function startServer() {
   app.post("/api/auth/switch-to-demo", (req, res) => {
     const bot = getBot(req);
     const result = bot.switchToDemo();
+    const telegramId = req.body?.telegramId || "default";
+    if (sessionsCollection) {
+      sessionsCollection.updateOne(
+        { telegramId: String(telegramId) },
+        { $set: { lastMode: "demo" } },
+        { upsert: true }
+      ).catch(() => {});
+    }
     res.json({ ...result, state: bot.getFullState() });
   });
 
@@ -252,12 +260,28 @@ async function startServer() {
     const { telegramId, derivToken } = req.body;
     if (!telegramId || !derivToken) return res.json({ success: false });
     await saveSession(String(telegramId), derivToken);
+    if (sessionsCollection) {
+      sessionsCollection.updateOne(
+        { telegramId: String(telegramId) },
+        { $set: { lastMode: "deriv" } },
+        { upsert: true }
+      ).catch(() => {});
+    }
     res.json({ success: true });
   });
 
   app.post("/api/auth/auto-login", async (req, res) => {
     const { telegramId } = req.body;
     if (!telegramId) return res.json({ success: false });
+    // Only auto-login to Deriv if the user's last active mode was actually "deriv"
+    if (sessionsCollection) {
+      try {
+        const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
+        if (doc?.lastMode === "demo") {
+          return res.json({ success: false, reason: "last_mode_was_demo" });
+        }
+      } catch {}
+    }
     const token = await getSession(String(telegramId));
     if (!token) return res.json({ success: false, reason: "no_session" });
     const bot = botManager.getBot(String(telegramId));

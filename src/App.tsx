@@ -69,9 +69,9 @@ export default function App() {
 
   const telegramId = telegramUser?.id ? String(telegramUser.id) : "default";
   const actualBalance = balance ? parseFloat(balance) : null;
-  // Only deduct bank balance from sandbox demo (not from real Deriv account)
+  // Always show available balance (total minus Reserved Bank) for consistency across the app
   const availableBalance = actualBalance !== null
-    ? (!currentUserEmail ? Math.max(0, actualBalance - bankBalance).toFixed(2) : actualBalance.toFixed(2))
+    ? Math.max(0, actualBalance - bankBalance).toFixed(2)
     : null;
 
   // Load bank balance whenever user logs in
@@ -85,6 +85,29 @@ export default function App() {
   }, [currentUserEmail, bypassAuth, telegramId]);
 
   useEffect(() => {
+    const runSequentialRestore = (uid: string) => {
+      // Sequential flow: try Deriv auto-login FIRST, only restore sandbox if that fails
+      fetch("/api/auth/auto-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegramId: uid }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.success) {
+            console.log("[Session] Auto-login successful");
+          } else {
+            // No Deriv session — restore sandbox demo balance and bank from MongoDB
+            return fetch("/api/auth/restore-sandbox", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ telegramId: uid }),
+            }).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    };
+
     if (typeof window !== "undefined" && window.Telegram?.WebApp) {
       const webApp = window.Telegram.WebApp;
       webApp.ready();
@@ -99,29 +122,26 @@ export default function App() {
         const tgUser = webApp.initDataUnsafe.user;
         setTelegramUser(tgUser);
         setBypassAuth(true);
-
-        // ── Auto-login with saved session ─────────────────────────────────────
-        // Try to restore the user's Deriv session using their Telegram ID
-        fetch("/api/auth/auto-login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ telegramId: tgUser.id }),
-        })
-          .then((r) => r.json())
-          .then((data) => {
-            if (data.success) {
-              console.log("[Session] Auto-login successful for", tgUser.username);
-            } else {
-              // No Deriv session — restore sandbox demo balance and bank from MongoDB
-              fetch("/api/auth/restore-sandbox", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ telegramId: tgUser.id }),
-              }).catch(() => {});
-            }
-          })
-          .catch(() => {});
+        runSequentialRestore(String(tgUser.id));
+      } else {
+        // Web user — use persistent UUID
+        let webId = localStorage.getItem("digit_bot_web_uid");
+        if (!webId) {
+          webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+          localStorage.setItem("digit_bot_web_uid", webId);
+        }
+        setBypassAuth(true);
+        runSequentialRestore(webId);
       }
+    } else {
+      // No Telegram WebApp — pure web user
+      let webId = localStorage.getItem("digit_bot_web_uid");
+      if (!webId) {
+        webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem("digit_bot_web_uid", webId);
+      }
+      setBypassAuth(true);
+      runSequentialRestore(webId);
     }
   }, []);
 

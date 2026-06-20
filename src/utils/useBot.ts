@@ -242,10 +242,10 @@ export function useBot() {
     }
   };
 
-  // Switch back to Deriv account (auto-login with saved token)
+  // Switch back to Deriv account (manual toggle — always uses saved token)
   const switchToDeriv = async () => {
     try {
-      const res = await postJSON("/api/auth/auto-login");
+      const res = await postJSON("/api/auth/switch-to-deriv");
       const data = await res.json();
       if (data.success) {
         setCurrentUserEmail(data.state?.currentUserEmail ?? null);

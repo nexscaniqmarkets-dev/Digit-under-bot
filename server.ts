@@ -261,9 +261,19 @@ async function startServer() {
     if (sessionsCollection) {
       try {
         const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
-        if (doc?.bankBalance) bot.setBankBalance(doc.bankBalance);
-        if (doc?.demoBalance) bot.restoreDemoBalance(doc.demoBalance);
-      } catch {}
+        console.log(`[Restore] telegramId=${telegramId} found doc:`, doc ? { bankBalance: doc.bankBalance, demoBalance: doc.demoBalance, lastMode: doc.lastMode } : "NO DOC FOUND");
+        if (doc?.bankBalance != null) bot.setBankBalance(doc.bankBalance);
+        if (doc?.demoBalance != null) {
+          bot.restoreDemoBalance(doc.demoBalance);
+          console.log(`[Restore] Restored sandbox balance to ${doc.demoBalance} for ${telegramId}`);
+        } else {
+          console.log(`[Restore] No demoBalance found in DB for ${telegramId} — bot will use default`);
+        }
+      } catch (e) {
+        console.error("[Restore] Error during restore-sandbox:", e);
+      }
+    } else {
+      console.log("[Restore] sessionsCollection not available (MongoDB not connected)");
     }
     res.json({ success: true, state: bot.getFullState() });
   });
@@ -301,8 +311,8 @@ async function startServer() {
     if (sessionsCollection) {
       try {
         const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
-        if (doc?.bankBalance) bot.setBankBalance(doc.bankBalance);
-        if (doc?.demoBalance) bot.restoreDemoBalance(doc.demoBalance);
+        if (doc?.bankBalance != null) bot.setBankBalance(doc.bankBalance);
+        if (doc?.demoBalance != null) bot.restoreDemoBalance(doc.demoBalance);
       } catch {}
     }
     const result = await bot.loginWithToken(token);
@@ -320,8 +330,8 @@ async function startServer() {
     if (sessionsCollection) {
       try {
         const doc = await sessionsCollection.findOne({ telegramId: String(telegramId) });
-        if (doc?.bankBalance) bot.setBankBalance(doc.bankBalance);
-        if (doc?.demoBalance) bot.restoreDemoBalance(doc.demoBalance);
+        if (doc?.bankBalance != null) bot.setBankBalance(doc.bankBalance);
+        if (doc?.demoBalance != null) bot.restoreDemoBalance(doc.demoBalance);
       } catch {}
     }
     const result = await bot.loginWithToken(token);

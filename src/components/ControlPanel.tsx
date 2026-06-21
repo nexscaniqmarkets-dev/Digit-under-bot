@@ -190,11 +190,21 @@ export default function ControlPanel({
                 min="0.35"
                 step="0.5"
                 disabled={isRunning}
-                value={config.stakeAmount}
+                value={config.stakeAmount === 0 ? "" : config.stakeAmount}
                 onChange={(e) => {
-                  const val = parseFloat(e.target.value);
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    onConfigChange({ ...config, stakeAmount: 0 });
+                    return;
+                  }
+                  const val = parseFloat(raw);
                   if (!isNaN(val) && val >= 0) {
                     onConfigChange({ ...config, stakeAmount: val });
+                  }
+                }}
+                onBlur={(e) => {
+                  if (e.target.value === "" || parseFloat(e.target.value) <= 0) {
+                    onConfigChange({ ...config, stakeAmount: 0.35 });
                   }
                 }}
                 className="w-20 bg-[#0d0d0f] border border-white/[0.1] rounded-md px-2 py-1 text-sm text-white font-bold text-right focus:outline-none focus:border-gold-500 disabled:opacity-50"

@@ -116,8 +116,16 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                   type="number"
                   step="0.1"
                   required
-                  value={formData.stakeAmount}
-                  onChange={(e) => handleInputChange("stakeAmount", parseFloat(e.target.value) || 0)}
+                  value={formData.stakeAmount === 0 ? "" : formData.stakeAmount}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    handleInputChange("stakeAmount", raw === "" ? 0 : parseFloat(raw) || 0);
+                  }}
+                  onBlur={(e) => {
+                    if (e.target.value === "" || parseFloat(e.target.value) <= 0) {
+                      handleInputChange("stakeAmount", 0.35);
+                    }
+                  }}
                   className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 font-mono text-xs text-white focus:outline-none focus:border-gold-500"
                 />
               </div>

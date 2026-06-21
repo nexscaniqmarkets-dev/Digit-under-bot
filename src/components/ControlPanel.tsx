@@ -174,8 +174,33 @@ export default function ControlPanel({
                 </button>
               </div>
             ) : (
-              <div className="px-2.5 py-1 rounded-md bg-gold-500/10 border border-gold-500/20 text-[9px] font-bold uppercase tracking-wider text-gold-500">
-                Split-M Pro Lite
+              <div className="flex flex-wrap gap-1 p-1 bg-[#121216] rounded-lg border border-white/[0.06] select-none max-w-full">
+                <button
+                  type="button"
+                  disabled={isRunning}
+                  onClick={() => handleModeChange("GradualRecoveryProLite")}
+                  className={`text-[9px] px-2.5 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
+                    config.mode === "GradualRecoveryProLite"
+                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
+                      : "text-neutral-500 hover:text-white"
+                  } disabled:opacity-50`}
+                  title="Split-Martingale Pro Lite — Pro's signal tightening + Lite's 25% recovery target"
+                >
+                  Split-M Pro Lite
+                </button>
+                <button
+                  type="button"
+                  disabled={isRunning}
+                  onClick={() => handleModeChange("GradualRecoveryPro")}
+                  className={`text-[9px] px-2.5 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
+                    config.mode === "GradualRecoveryPro"
+                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
+                      : "text-neutral-500 hover:text-white"
+                  } disabled:opacity-50`}
+                  title="Split-Martingale Pro — pauses after 2 losses, finds 75%+ signal"
+                >
+                  Split-M Pro
+                </button>
               </div>
             )}
           </div>
@@ -247,3 +272,4 @@ export default function ControlPanel({
     </div>
   );
 }
+

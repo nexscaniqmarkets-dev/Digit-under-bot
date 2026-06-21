@@ -121,33 +121,31 @@ export default function App() {
         .catch(() => {});
     };
 
-    if (typeof window !== "undefined" && window.Telegram?.WebApp) {
-      const webApp = window.Telegram.WebApp;
-      webApp.ready();
-      webApp.expand();
-      try {
-        if (webApp.setHeaderColor) webApp.setHeaderColor("#0c0c10");
-        if (webApp.setBackgroundColor) webApp.setBackgroundColor("#0c0c10");
-      } catch (err) {
-        console.warn("Setting Telegram header/bg color warning:", err);
-      }
-      if (webApp.initDataUnsafe?.user) {
-        const tgUser = webApp.initDataUnsafe.user;
-        setTelegramUser(tgUser);
-        setBypassAuth(true);
-        runSequentialRestore(String(tgUser.id));
-      } else {
-        // Web user — use persistent UUID
-        let webId = localStorage.getItem("digit_bot_web_uid");
-        if (!webId) {
-          webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-          localStorage.setItem("digit_bot_web_uid", webId);
+    const detectTelegramUserWithRetry = (attemptsLeft: number) => {
+      if (typeof window !== "undefined" && window.Telegram?.WebApp) {
+        const webApp = window.Telegram.WebApp;
+        webApp.ready();
+        webApp.expand();
+        try {
+          if (webApp.setHeaderColor) webApp.setHeaderColor("#0c0c10");
+          if (webApp.setBackgroundColor) webApp.setBackgroundColor("#0c0c10");
+        } catch (err) {
+          console.warn("Setting Telegram header/bg color warning:", err);
         }
-        setBypassAuth(true);
-        runSequentialRestore(webId);
+        if (webApp.initDataUnsafe?.user) {
+          const tgUser = webApp.initDataUnsafe.user;
+          setTelegramUser(tgUser);
+          setBypassAuth(true);
+          runSequentialRestore(String(tgUser.id));
+          return;
+        }
+        // Telegram WebApp object exists but user data hasn't populated yet — retry briefly
+        if (attemptsLeft > 0) {
+          setTimeout(() => detectTelegramUserWithRetry(attemptsLeft - 1), 150);
+          return;
+        }
       }
-    } else {
-      // No Telegram WebApp — pure web user
+      // No Telegram WebApp, or user data never populated after retries — fall back to web UUID
       let webId = localStorage.getItem("digit_bot_web_uid");
       if (!webId) {
         webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -155,7 +153,9 @@ export default function App() {
       }
       setBypassAuth(true);
       runSequentialRestore(webId);
-    }
+    };
+
+    detectTelegramUserWithRetry(10); // retry up to 10 times (~1.5s total) before falling back
   }, []);
 
   // Watch tradeLogs length to trigger haptic vibrations when inside Telegram WebApp

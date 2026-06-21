@@ -154,7 +154,7 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                   <span className="text-[8.5px] text-neutral-500 font-medium leading-snug mt-1">
                     {formData.showAllModes
                       ? "All 5 modes available for selection"
-                      : "Locked to Split-M Pro Lite (recommended default)"}
+                      : "Choose between Split-M Pro Lite and Split-M Pro (recommended defaults)"}
                   </span>
                 </div>
                 <input

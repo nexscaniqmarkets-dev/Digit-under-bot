@@ -171,14 +171,11 @@ async function startServer() {
     const bankBal = await getBankBalance(telegramId);
     bot.setBankBalance(bankBal);
     const state = bot.getFullState();
-    // Persist demoBalance to MongoDB so it survives redeploys
-    if (state.config?.demoBalance !== undefined && sessionsCollection) {
-      sessionsCollection.updateOne(
-        { telegramId },
-        { $set: { demoBalance: state.config.demoBalance } },
-        { upsert: true }
-      ).catch(() => {});
-    }
+    // NOTE: demoBalance is intentionally NOT written here. Writing on every poll risked
+    // overwriting the correct MongoDB value with a freshly-constructed bot's default
+    // (10000) before restore-sandbox/auto-login had a chance to restore the real balance
+    // after a cold start. demoBalance is now only persisted immediately after each trade
+    // settles (via the onBalanceChange callback in server-bot.ts).
     res.json(state);
   });
 

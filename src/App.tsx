@@ -89,7 +89,8 @@ export default function App() {
   }, [currentUserEmail, bypassAuth, telegramId]);
 
   useEffect(() => {
-    const runSequentialRestore = (uid: string) => {
+    const runSequentialRestore = (uid: string, retriesLeft: number = 3) => {
+      console.log(`[App] Starting sequential restore for uid=${uid}, retriesLeft=${retriesLeft}`);
       // Sequential flow: try Deriv auto-login FIRST, only restore sandbox if that fails
       fetch("/api/auth/auto-login", {
         method: "POST",
@@ -98,6 +99,7 @@ export default function App() {
       })
         .then((r) => r.json())
         .then((data) => {
+          console.log("[App] auto-login response:", data);
           if (data.success) {
             console.log("[Session] Auto-login successful");
             setHasSavedDerivSession(true);
@@ -108,17 +110,31 @@ export default function App() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ telegramId: uid }),
-            }).catch(() => {});
+            })
+              .then((r) => r.json())
+              .then((d) => console.log("[App] restore-sandbox response:", d))
+              .catch((e) => console.error("[App] restore-sandbox fetch error:", e));
           } else {
             // No Deriv session — restore sandbox demo balance and bank from MongoDB
             return fetch("/api/auth/restore-sandbox", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ telegramId: uid }),
-            }).catch(() => {});
+            })
+              .then((r) => r.json())
+              .then((d) => console.log("[App] restore-sandbox response:", d))
+              .catch((e) => console.error("[App] restore-sandbox fetch error:", e));
           }
         })
-        .catch(() => {});
+        .catch((e) => {
+          console.error(`[App] auto-login fetch failed (retriesLeft=${retriesLeft}):`, e);
+          // Render free tier cold-start can take 50+ seconds — retry instead of giving up silently
+          if (retriesLeft > 0) {
+            setTimeout(() => runSequentialRestore(uid, retriesLeft - 1), 3000);
+          } else {
+            console.error("[App] All restore retries exhausted — balance may show stale/default values");
+          }
+        });
     };
 
     const detectTelegramUserWithRetry = (attemptsLeft: number) => {

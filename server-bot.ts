@@ -687,9 +687,12 @@ class ServerBot {
 
   public updateConfig(newConfig: Partial<BotConfig>) {
     this.config = { ...this.config, ...newConfig };
-    // Enforce single-mode lock: when showAllModes is off, always force Split-M Pro Lite
+    // Enforce default-mode lock: when showAllModes is off, only Split-M Pro Lite and Split-M Pro are allowed
     if (!this.config.showAllModes) {
-      this.config.mode = "GradualRecoveryProLite";
+      const allowedDefaultModes = ["GradualRecoveryProLite", "GradualRecoveryPro"];
+      if (!allowedDefaultModes.includes(this.config.mode)) {
+        this.config.mode = "GradualRecoveryProLite";
+      }
     }
     this.saveConfigPersistence();
     this.showToast("Configuration parameters updated.", "blue");

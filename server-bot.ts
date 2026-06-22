@@ -1373,7 +1373,9 @@ class ServerBot {
         barrier: this.config.referenceDigit,
         multiplier: currentMultiplier,
         seq: this.sequenceDone,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        under_pct: currentActiveObj?.underPct ?? 0,
+        signal_strength: currentActiveObj?.signalStrength ?? "STRONG"
       };
     } else {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -1383,7 +1385,9 @@ class ServerBot {
           id: "",
           symbol,
           stake: computedStake,
-          seq: this.sequenceDone
+          seq: this.sequenceDone,
+          under_pct: currentActiveObj?.underPct ?? 0,
+          signal_strength: currentActiveObj?.signalStrength ?? "STRONG"
         };
 
         const proposalPayload = {
@@ -1411,8 +1415,8 @@ class ServerBot {
     this.awaitingSettlement = false;
 
     const currentActive = this.symbolStates[contract.symbol];
-    const signalStr = currentActive ? currentActive.signalStrength : "STRONG";
-    const under_pct = currentActive ? currentActive.underPct : 0;
+    const signalStr = contract.signal_strength || (currentActive ? currentActive.signalStrength : "STRONG");
+    const under_pct = contract.under_pct ?? (currentActive ? currentActive.underPct : 0);
     
     const isWin = settledDigit < contract.barrier;
     const payoutFactor = contract.barrier === 7 ? 0.34 : (0.95 / (contract.barrier / 10)) - 1;
@@ -1426,7 +1430,8 @@ class ServerBot {
     const isWin = Number(poc.profit) > 0;
     const profitAmount = Number(poc.profit);
     const stakeAmount = Number(poc.buy_price);
-    const symbol = poc.symbol;
+    // poc.symbol may be undefined or in a different format — fall back to activeSymbol
+    const symbol = poc.symbol || poc.underlying || this.activeSymbol || "";
     
     if (poc && poc.balance_after !== undefined && poc.balance_after !== null) {
       const parsedBal = Number(poc.balance_after);
@@ -1434,12 +1439,14 @@ class ServerBot {
         this.balance = parsedBal.toFixed(2);
       }
     }
+    // Use snapshotted values from trade entry — more accurate than reading current tick
+    const savedContract = this.pendingRealContract;
     this.pendingRealContract = null;
     this.awaitingSettlement = false;
 
-    const currentActive = this.symbolStates[symbol];
-    const signalStr = currentActive ? currentActive.signalStrength : "STRONG";
-    const under_pct = currentActive ? currentActive.underPct : 0;
+    const currentActive = this.symbolStates[symbol] || (this.activeSymbol ? this.symbolStates[this.activeSymbol] : null);
+    const signalStr = savedContract?.signal_strength || (currentActive ? currentActive.signalStrength : "STRONG");
+    const under_pct = savedContract?.under_pct ?? (currentActive ? currentActive.underPct : 0);
 
     this.processContractOutcome(isWin ? "WIN" : "LOSS", symbol, stakeAmount, profitAmount, under_pct, signalStr);
   }

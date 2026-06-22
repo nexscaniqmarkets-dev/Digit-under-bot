@@ -1351,10 +1351,14 @@ class ServerBot {
       }
     }
 
-    // Safety balance check — use available balance (total minus reserved bank)
-    const currentBalance = Math.max(0, (Number(this.balance) || 10000) - this.bankBalance);
+    // Safety balance check
+    // Reserved Bank only applies to sandbox demo — never deduct from real Deriv account balance
+    const isSandbox = this.config.demoMode || !this.config.apiToken;
+    const currentBalance = isSandbox
+      ? Math.max(0, (Number(this.balance) || 10000) - this.bankBalance)
+      : (Number(this.balance) || 0);
     if (computedStake > currentBalance) {
-      this.showToast(`Insufficient balance. Required: $${computedStake}, Available: $${currentBalance.toFixed(2)} (Bank: $${this.bankBalance.toFixed(2)}). Halting bot.`, "red");
+      this.showToast(`Insufficient balance. Required: $${computedStake.toFixed(2)}, Available: $${currentBalance.toFixed(2)}. Halting bot.`, "red");
       this.haltBot(`Insufficient balance for stake: $${computedStake} vs $${currentBalance}`);
       return;
     }

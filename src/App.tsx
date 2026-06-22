@@ -446,24 +446,7 @@ export default function App() {
       {(currentUserEmail || bypassAuth) && (
         <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-4 pt-2 bg-gradient-to-t from-bg-main via-bg-main/90 to-transparent">
           <nav className="max-w-md mx-auto bg-bg-card/95 backdrop-blur-lg border border-white/[0.08] shadow-2xl rounded-2xl p-1.5 flex justify-around items-center">
-            {/* Tab 1: Dashboard Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("dashboard");
-                triggerLightHaptic();
-              }}
-              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
-                activeTab === "dashboard"
-                  ? "bg-gold-500/10 text-gold-400 font-bold"
-                  : "text-neutral-400 hover:text-neutral-200"
-              }`}
-            >
-              <LayoutDashboard className="h-4 w-4" />
-              <span className="text-[9px] uppercase tracking-wider">Dashboard</span>
-            </button>
-
-            {/* Tab 2: Scanner Button */}
+            {/* Tab 1: Markets Button */}
             <button
               type="button"
               onClick={() => {
@@ -480,7 +463,41 @@ export default function App() {
               <span className="text-[9px] uppercase tracking-wider">Markets</span>
             </button>
 
-            {/* Tab 3: History Button */}
+            {/* Tab 2: Funds Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("funds");
+                triggerLightHaptic();
+              }}
+              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
+                activeTab === "funds"
+                  ? "bg-gold-500/10 text-gold-400 font-bold"
+                  : "text-neutral-400 hover:text-neutral-200"
+              }`}
+            >
+              <Wallet className="h-4 w-4" />
+              <span className="text-[9px] uppercase tracking-wider">Funds</span>
+            </button>
+
+            {/* Tab 3: Trade Button (formerly Dashboard) — center position */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("dashboard");
+                triggerLightHaptic();
+              }}
+              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
+                activeTab === "dashboard"
+                  ? "bg-gold-500/10 text-gold-400 font-bold"
+                  : "text-neutral-400 hover:text-neutral-200"
+              }`}
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              <span className="text-[9px] uppercase tracking-wider">Trade</span>
+            </button>
+
+            {/* Tab 4: History Button */}
             <button
               type="button"
               onClick={() => {
@@ -497,7 +514,7 @@ export default function App() {
               <span className="text-[9px] uppercase tracking-wider">History</span>
             </button>
 
-            {/* Tab 4: Settings Button */}
+            {/* Tab 5: Settings Button */}
             <button
               type="button"
               onClick={() => {
@@ -512,23 +529,6 @@ export default function App() {
             >
               <Settings className="h-4 w-4" />
               <span className="text-[9px] uppercase tracking-wider">Settings</span>
-            </button>
-
-            {/* Tab 5: Funds Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("funds");
-                triggerLightHaptic();
-              }}
-              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
-                activeTab === "funds"
-                  ? "bg-gold-500/10 text-gold-400 font-bold"
-                  : "text-neutral-400 hover:text-neutral-200"
-              }`}
-            >
-              <Wallet className="h-4 w-4" />
-              <span className="text-[9px] uppercase tracking-wider">Funds</span>
             </button>
           </nav>
         </div>

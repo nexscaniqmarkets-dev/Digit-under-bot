@@ -157,7 +157,7 @@ export default function App() {
     <div className="min-h-screen bg-[#fff8f3] text-[#1e1b16] font-sans antialiased selection:bg-[#ffdea5] selection:text-[#4e3700]">
 
       {/* ── TOASTS ── */}
-      <div className="fixed top-16 right-3 z-[60] flex flex-col gap-2 max-w-[280px]">
+      <div className="fixed bottom-24 right-3 z-[60] flex flex-col gap-2 max-w-[280px]">
         {toasts.map((t) => {
           const styles: Record<string, string> = {
             green: "bg-[#f0fdf4] border-success/30 text-success",

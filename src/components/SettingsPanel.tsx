@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { BotConfig } from "../types";
-import { Settings, HelpCircle, Save, AlertTriangle, ShieldCheck, PlayCircle } from "lucide-react";
 
 interface SettingsPanelProps {
   config: BotConfig;
@@ -9,288 +8,215 @@ interface SettingsPanelProps {
 }
 
 export default function SettingsPanel({ config, saveConfig, isRunning }: SettingsPanelProps) {
-  const [isOpen, setIsOpen] = useState(false);
   const [formData, setFormData] = useState<BotConfig>(config);
+  const [openGroup, setOpenGroup] = useState<string | null>("tuning");
 
-  // Sync state if config updates from outside sources
-  const handleInputChange = (key: keyof BotConfig, value: any) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
-  };
+  const set = (key: keyof BotConfig, value: any) => setFormData((p) => ({ ...p, [key]: value }));
 
   const handleApply = (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Validations
-    if (formData.stakeAmount <= 0) {
-      alert("Base Stake Amount must be strictly greater than 0.");
-      return;
-    }
-    if (formData.referenceDigit < 1 || formData.referenceDigit > 9) {
-      alert("Reference boundary digit must be between 1 and 9.");
-      return;
-    }
-    if (formData.analysisTickCount < 10 || formData.analysisTickCount > 300) {
-      alert("Tick Analysis Buffer count must be between 10 and 300 ticks.");
-      return;
-    }
-    if (formData.minUnderPercentage < 50 || formData.minUnderPercentage > 95) {
-      alert("Minimum Under Percentage threshold must be between 50% and 95%.");
-      return;
-    }
-
-    const automatedConfig = {
-      ...formData,
-      takeProfit: Number((formData.stakeAmount * 3).toFixed(2)),
-      stopLoss: 4.0,
-      confirmationRequired: 2,
-      tradeSequenceCount: 3
-    };
-
-    saveConfig(automatedConfig);
-    setIsOpen(false);
-    alert("Configurations committed. Active session has been updated/reset with Take Profit set to 3x your stake amount ($" + (formData.stakeAmount * 3).toFixed(2) + ") and Stop Loss capped at 4 consecutive losses.");
+    if (formData.stakeAmount <= 0) { alert("Base stake must be > 0."); return; }
+    if (formData.referenceDigit < 1 || formData.referenceDigit > 9) { alert("Reference digit must be 1–9."); return; }
+    if (formData.analysisTickCount < 10 || formData.analysisTickCount > 300) { alert("Tick buffer must be 10–300."); return; }
+    if (formData.minUnderPercentage < 50 || formData.minUnderPercentage > 95) { alert("Min Under % must be 50–95%."); return; }
+    saveConfig({ ...formData, takeProfit: Number((formData.stakeAmount * 3).toFixed(2)), stopLoss: 4.0, confirmationRequired: 2, tradeSequenceCount: 3 });
+    alert(`Config applied. TP set to $${(formData.stakeAmount * 3).toFixed(2)} · SL at 4 losses.`);
   };
 
-  return (
-    <div className="bg-bg-card border border-white/[0.08] rounded-xl overflow-hidden shadow-sm animate-fade-in">
-      {/* Head Header line toggle */}
-      <div
-        onClick={() => !isRunning && setIsOpen(!isOpen)}
-        className={`px-5 py-4 flex items-center justify-between transition-all select-none ${
-          isRunning ? "cursor-not-allowed opacity-60 bg-white/[0.01]" : "cursor-pointer hover:bg-white/[0.02] bg-transparent"
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <Settings className={`h-5 w-5 text-gold-500 transition-transform duration-300 ${isOpen ? "rotate-45" : ""}`} />
-          <div>
-            <h3 className="text-xs font-bold tracking-widest text-white uppercase flex items-center gap-2 font-sans">
-              BOT CONFIGURATION CAPABILITIES
-              {isRunning && (
-                <span className="text-[8px] font-bold tracking-wider px-2 py-0.5 bg-gold-500/10 text-gold-500 border border-gold-500/20 rounded uppercase font-mono">
-                  LOCKED
-                </span>
-              )}
-            </h3>
-            <p className="text-[10px] text-neutral-500 mt-0.5 font-sans">
-              {isOpen
-                ? "Configure custom risk guidelines, signal trigger factors, and cloud variables"
-                : `Base: $${config.stakeAmount} | Mode: ${config.mode} | Target: under ${config.referenceDigit} | Trigger: >= ${config.minUnderPercentage}%`}
-            </p>
-          </div>
-        </div>
+  const toggle = (id: string) => setOpenGroup(openGroup === id ? null : id);
 
-        {!isRunning && (
-          <button
-            type="button"
-            className="text-[9px] font-bold tracking-widest uppercase px-3 py-1.5 text-gold-500 bg-gold-500/10 hover:bg-gold-500/15 rounded border border-gold-500/25 transition-all"
-          >
-            {isOpen ? "CLOSE" : "EDIT CONFIG"}
-          </button>
+  const AccordionHeader = ({ id, icon, title }: { id: string; icon: string; title: string }) => (
+    <button
+      type="button"
+      className="w-full px-4 py-4 flex items-center justify-between hover:bg-[#fbf2e9] transition-colors cursor-pointer"
+      onClick={() => toggle(id)}
+    >
+      <div className="flex items-center gap-3">
+        <span className="material-symbols-outlined text-[#775a19] opacity-70 text-[20px]">{icon}</span>
+        <span className="text-[16px] font-semibold text-[#1e1b16] uppercase tracking-[0.04em]">{title}</span>
+      </div>
+      <span className={`material-symbols-outlined text-[#4e4639] transition-transform duration-300 ${openGroup === id ? "rotate-180" : ""}`}>expand_more</span>
+    </button>
+  );
+
+  return (
+    <div className="flex flex-col gap-4 animate-fade-in pb-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-black text-[#1e1b16] uppercase tracking-[0.05em]">BOT SETTINGS</h1>
+          <p className="text-[11px] text-[#4e4639] mt-0.5">Configure risk guidelines & signal parameters</p>
+        </div>
+        {isRunning && (
+          <span className="px-3 py-1 rounded-full bg-[#ffdea5] text-[#4e3700] text-[9px] font-black uppercase tracking-wider border border-[#c5a059]">
+            BOT ACTIVE · LOCKED
+          </span>
         )}
       </div>
 
-      {/* Expanded Forms block */}
-      {isOpen && !isRunning && (
-        <form onSubmit={handleApply} className="p-5 border-t border-white/[0.08] bg-[#131317]/50 flex flex-col gap-5">
-          {/* Active Session Warning notice inside OCR page 16 */}
-          <div className="bg-gold-500/5 border border-gold-500/15 p-3.5 rounded-lg flex items-start gap-2.5 text-gold-500 font-sans">
-            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            <div className="text-[10px] leading-4 font-medium uppercase tracking-wider">
-              Warning: Applying new constants immediately resets all current session histories, running streak counts, and Martingale multipliers.
+      {/* Active session status */}
+      {isRunning && (
+        <div className="glass-card rounded-xl p-3 flex items-center justify-between border-[#c5a059]/30 bg-[#ffdea5]/20">
+          <div className="flex items-center gap-3">
+            <span className="material-symbols-outlined text-[#775a19]">smart_toy</span>
+            <div>
+              <p className="text-[10px] font-bold text-[#775a19] uppercase tracking-wider">ACTIVE SESSION</p>
+              <p className="text-[13px] font-bold text-[#1e1b16] uppercase">BOT RUNNING</p>
             </div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* COLUMN 1: Basic Trading settings */}
-            <div className="flex flex-col gap-4 font-sans">
-              <h4 className="text-[9px] font-bold tracking-widest text-neutral-400 border-b border-white/[0.06] pb-2 uppercase">
-                ⚙️ BASIC TUNING PARAMETERS
-              </h4>
-              
-              {/* Stake Amount */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
-                  Stake Amount (USD)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  required
-                  value={formData.stakeAmount === 0 ? "" : formData.stakeAmount}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    handleInputChange("stakeAmount", raw === "" ? 0 : parseFloat(raw) || 0);
-                  }}
-                  onBlur={(e) => {
-                    if (e.target.value === "" || parseFloat(e.target.value) <= 0) {
-                      handleInputChange("stakeAmount", 0.35);
-                    }
-                  }}
-                  className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 font-mono text-xs text-white focus:outline-none focus:border-gold-500"
-                />
-              </div>
-
-              {/* Reference boundary digit */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
-                  Reference Digit (Barrier)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="9"
-                  required
-                  value={formData.referenceDigit}
-                  onChange={(e) => handleInputChange("referenceDigit", parseInt(e.target.value) || 0)}
-                  className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 font-mono text-xs text-white focus:outline-none focus:border-gold-500"
-                />
-                <span className="text-[8.5px] text-neutral-500 leading-normal uppercase">Bot buys DIGITUNDER contract (losing on values &gt;= {formData.referenceDigit})</span>
-              </div>
-
-              {/* Show All Trading Modes Toggle */}
-              <div className="flex items-center justify-between p-3 bg-[#131317] rounded-lg border border-white/[0.06]">
-                <div className="flex flex-col">
-                  <span className="text-[9px] font-bold text-white uppercase tracking-widest">Show All Trading Modes</span>
-                  <span className="text-[8.5px] text-neutral-500 font-medium leading-snug mt-1">
-                    {formData.showAllModes
-                      ? "All 5 modes available for selection"
-                      : "Choose between Split-M Pro Lite and Split-M Pro (recommended defaults)"}
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={!!formData.showAllModes}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    handleInputChange("showAllModes", checked);
-                    if (!checked) {
-                      handleInputChange("mode", "GradualRecoveryProLite");
-                    }
-                  }}
-                  className="h-4 w-4 rounded text-gold-500 focus:ring-0 focus:ring-offset-0 accent-gold-500 bg-[#0d0d0f] border-white/[0.1] cursor-pointer"
-                />
-              </div>
-
-              {/* Mode Selection — only shown when Show All Modes is enabled */}
-              {formData.showAllModes && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
-                    Stake &amp; Recovery Mode
-                  </label>
-                  <select
-                    value={formData.mode}
-                    onChange={(e) => handleInputChange("mode", e.target.value as any)}
-                    className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-gold-500 cursor-pointer"
-                  >
-                    <option value="Standard">Standard (Fixed stakes)</option>
-                    <option value="GradualRecovery">Split-M Classic (50% recovery)</option>
-                    <option value="GradualRecoveryPro">Split-M Pro (50% recovery + signal tightening)</option>
-                    <option value="GradualRecoveryLite">Split-M Lite (25% recovery, lower stakes)</option>
-                    <option value="GradualRecoveryProLite">Split-M Pro Lite (25% recovery + signal tightening)</option>
-                  </select>
-                </div>
-              )}
-            </div>
-
-            {/* COLUMN 2: Scanning threshold factors */}
-            <div className="flex flex-col gap-4 font-sans">
-              <h4 className="text-[9px] font-bold tracking-widest text-neutral-400 border-b border-white/[0.06] pb-2 uppercase">
-                ⚡ DETECTOR THRESHOLDS
-              </h4>
-
-              {/* Ticks Analysis Buffer */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
-                  Analysis Tick Buffer Length
-                </label>
-                <input
-                  type="number"
-                  min="10"
-                  max="300"
-                  required
-                  value={formData.analysisTickCount}
-                  onChange={(e) => handleInputChange("analysisTickCount", parseInt(e.target.value) || 0)}
-                  className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 font-mono text-xs text-white focus:outline-none focus:border-gold-500"
-                />
-                <span className="text-[8.5px] text-neutral-500 leading-normal uppercase">Depth of historical ticks to compute frequency scores.</span>
-              </div>
-
-              {/* Min Under Percentage */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest">
-                  Min Under % To Trigger (Signal)
-                </label>
-                <input
-                  type="number"
-                  min="50"
-                  max="95"
-                  required
-                  value={formData.minUnderPercentage}
-                  onChange={(e) => handleInputChange("minUnderPercentage", parseInt(e.target.value) || 0)}
-                  className="w-full bg-[#131317] border border-white/[0.06] rounded-lg px-3 py-2 font-mono text-xs text-white focus:outline-none focus:border-gold-500"
-                />
-              </div>
-
-              {/* Confirmation required */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-[#131317] border border-white/[0.04]">
-                  <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest leading-none">
-                    Confirmations Req.
-                  </span>
-                  <span className="text-xs font-bold text-gold-400 font-mono mt-1">
-                    2 Consecutive
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-[#131317] border border-white/[0.04]">
-                  <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest leading-none">
-                    Sequence Count
-                  </span>
-                  <span className="text-xs font-bold text-gold-400 font-mono mt-1">
-                    3 Trades Run
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* COLUMN 3: Safety and Credentials */}
-            <div className="flex flex-col gap-4 font-sans">
-              <h4 className="text-[9px] font-bold tracking-widest text-neutral-400 border-b border-white/[0.06] pb-2 uppercase">
-                🛡️ RISK PROTECTION LIMITS
-              </h4>
-
-              {/* Risk protection TP/SL */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-[#131317] border border-white/[0.04]">
-                  <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest leading-none">
-                    Take Profit
-                  </span>
-                  <span className="text-xs font-bold text-emerald-400 font-mono mt-1">
-                    3x Stake (${(formData.stakeAmount * 3).toFixed(2)})
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-[#131317] border border-white/[0.04]">
-                  <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest leading-none">
-                    Stop Loss
-                  </span>
-                  <span className="text-xs font-bold text-rose-450 font-mono mt-1">
-                    4 Consecutive L
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Save Button */}
-          <div className="pt-4 border-t border-white/[0.06] flex justify-end">
-            <button
-              type="submit"
-              className="w-full px-6 py-2.5 rounded-lg border border-gold-500/20 text-black bg-gradient-to-r from-gold-600 to-gold-400 hover:from-gold-500 hover:to-gold-300 font-bold text-[10px] tracking-widest uppercase transition-all outline-none flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-gold-500/5 active:scale-95"
-            >
-              <Save className="h-3.5 w-3.5" /> APPLY AND SAVE CONFIG
-            </button>
-          </div>
-        </form>
+        </div>
       )}
+
+      {/* Warning */}
+      <div className="bg-[#ffdad6]/30 border border-error/20 p-3 rounded-xl flex gap-3">
+        <span className="material-symbols-outlined text-error text-[20px] shrink-0">warning</span>
+        <p className="text-[12px] text-[#4e4639] leading-snug">
+          <span className="font-bold text-error uppercase tracking-wider">Warning: </span>
+          Applying new parameters resets all session streaks and martingale multipliers.
+        </p>
+      </div>
+
+      <form onSubmit={handleApply} className="flex flex-col gap-3">
+        {/* Accordion 1: Basic Tuning */}
+        <div className="glass-card rounded-xl overflow-hidden">
+          <AccordionHeader id="tuning" icon="tune" title="BASIC TUNING" />
+          {openGroup === "tuning" && (
+            <div className="px-4 pb-5 pt-2 flex flex-col gap-4 border-t border-[#d1c5b4]/50">
+              {/* Stake */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">STAKE AMOUNT (USD)</label>
+                <div className="flex items-center bg-white border border-[#d1c5b4] rounded-lg h-11 px-3 focus-within:border-[#775a19] transition-colors">
+                  <span className="text-[#775a19] font-bold mr-2" style={{ fontFamily: "IBM Plex Mono, monospace" }}>$</span>
+                  <input
+                    type="number" step="0.1" min="0.35" required disabled={isRunning}
+                    value={formData.stakeAmount || ""}
+                    onChange={(e) => set("stakeAmount", parseFloat(e.target.value) || 0)}
+                    className="bg-transparent border-none focus:ring-0 w-full text-[14px] text-[#1e1b16] outline-none disabled:opacity-50"
+                    style={{ fontFamily: "IBM Plex Mono, monospace" }}
+                  />
+                </div>
+              </div>
+
+              {/* Reference Digit */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">REFERENCE DIGIT (BARRIER)</label>
+                <div className="grid grid-cols-5 gap-2">
+                  {[1,2,3,4,5,6,7,8,9].slice(0,9).map((d) => (
+                    <button
+                      key={d} type="button" disabled={isRunning}
+                      onClick={() => set("referenceDigit", d)}
+                      className={`h-10 rounded border text-[14px] font-bold transition-all cursor-pointer disabled:opacity-40 ${
+                        formData.referenceDigit === d
+                          ? "border-[#775a19] bg-[#ffdea5] text-[#4e3700]"
+                          : "border-[#d1c5b4] bg-[#f5ede4] text-[#4e4639] hover:border-[#c5a059]"
+                      }`}
+                      style={{ fontFamily: "IBM Plex Mono, monospace" }}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[9px] text-[#7f7667] mt-1">Bot places DIGITUNDER — wins if last digit is strictly less than this value.</p>
+              </div>
+
+              {/* Show all modes toggle */}
+              <div className="flex items-center justify-between py-2 border-t border-[#d1c5b4]/30">
+                <div>
+                  <span className="text-[13px] text-[#1e1b16] font-semibold uppercase tracking-[0.04em]">SHOW ALL TRADING MODES</span>
+                  <p className="text-[10px] text-[#7f7667] mt-0.5">
+                    {formData.showAllModes ? "All 5 modes available" : "Only Split-M Pro Lite & Pro shown"}
+                  </p>
+                </div>
+                <div
+                  className={`custom-switch ${formData.showAllModes ? "switch-active" : ""}`}
+                  onClick={() => !isRunning && set("showAllModes", !formData.showAllModes)}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Accordion 2: Detector Thresholds */}
+        <div className="glass-card rounded-xl overflow-hidden">
+          <AccordionHeader id="detector" icon="analytics" title="DETECTOR THRESHOLDS" />
+          {openGroup === "detector" && (
+            <div className="px-4 pb-5 pt-2 flex flex-col gap-4 border-t border-[#d1c5b4]/50">
+              {/* Tick buffer */}
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">TICK BUFFER SIZE</label>
+                  <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>{formData.analysisTickCount} TICKS</span>
+                </div>
+                <input
+                  type="range" min="10" max="300" disabled={isRunning}
+                  value={formData.analysisTickCount}
+                  onChange={(e) => set("analysisTickCount", parseInt(e.target.value))}
+                  className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                />
+                <p className="text-[9px] text-[#7f7667]">Historical ticks used to compute frequency scores (10–300)</p>
+              </div>
+
+              {/* Min Under % */}
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">MIN UNDER PROBABILITY %</label>
+                  <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>{formData.minUnderPercentage}%</span>
+                </div>
+                <input
+                  type="range" min="50" max="95" disabled={isRunning}
+                  value={formData.minUnderPercentage}
+                  onChange={(e) => set("minUnderPercentage", parseInt(e.target.value))}
+                  className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                />
+              </div>
+
+              {/* Fixed params */}
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-[#d1c5b4]/30">
+                <div className="bg-[#fbf2e9] rounded-lg p-3 border border-[#d1c5b4]/50">
+                  <div className="text-[9px] font-bold text-[#4e4639] uppercase tracking-wider mb-1">Confirmations Req.</div>
+                  <div className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>2 Consecutive</div>
+                </div>
+                <div className="bg-[#fbf2e9] rounded-lg p-3 border border-[#d1c5b4]/50">
+                  <div className="text-[9px] font-bold text-[#4e4639] uppercase tracking-wider mb-1">Sequence Count</div>
+                  <div className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>3 Trades</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Accordion 3: Risk Protection */}
+        <div className="glass-card rounded-xl overflow-hidden">
+          <AccordionHeader id="risk" icon="security" title="RISK PROTECTION" />
+          {openGroup === "risk" && (
+            <div className="px-4 pb-5 pt-2 flex flex-col gap-4 border-t border-[#d1c5b4]/50">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-[#f0fdf4] rounded-lg p-3 border border-success/20">
+                  <div className="text-[9px] font-bold text-[#4e4639] uppercase tracking-wider mb-1">TAKE PROFIT</div>
+                  <div className="text-[14px] font-bold text-success" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                    ${(formData.stakeAmount * 3).toFixed(2)}
+                  </div>
+                  <div className="text-[9px] text-[#4e4639]/70 mt-0.5">Auto: 3× stake</div>
+                </div>
+                <div className="bg-[#ffdad6]/30 rounded-lg p-3 border border-error/20">
+                  <div className="text-[9px] font-bold text-[#4e4639] uppercase tracking-wider mb-1">STOP LOSS</div>
+                  <div className="text-[14px] font-bold text-error" style={{ fontFamily: "IBM Plex Mono, monospace" }}>4 Losses</div>
+                  <div className="text-[9px] text-[#4e4639]/70 mt-0.5">Consecutive</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Save button */}
+        <button
+          type="submit"
+          disabled={isRunning}
+          className="w-full gold-gradient text-white font-bold text-[12px] py-4 rounded-xl shadow-lg shadow-[#775a19]/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 uppercase tracking-[0.08em] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <span className="material-symbols-outlined text-[20px]">save</span>
+          APPLY & SAVE CONFIG
+        </button>
+      </form>
     </div>
   );
 }

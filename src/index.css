@@ -1,62 +1,152 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-serif: "Playfair Display", "Georgia", "Times New Roman", serif;
-  --font-sans: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  
-  --color-gold-50: #FAF8F4;
-  --color-gold-100: #F4EFE6;
-  --color-gold-200: #E6D9C2;
-  --color-gold-300: #D3BE97;
-  --color-gold-400: #C1A26B;
-  --color-gold-500: #C5A059; /* Aetheris luxury gold */
-  --color-gold-600: #A88143;
-  --color-gold-700: #886532;
-  --color-gold-800: #684C25;
-  --color-gold-900: #4B371B;
+  --font-sans: "Geist", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
-  --color-bg-main: #0D0D0F;
-  --color-bg-card: #16161A;
+  /* Light fintech palette from UX design */
+  --color-primary: #775a19;
+  --color-primary-container: #c5a059;
+  --color-primary-fixed: #ffdea5;
+  --color-primary-fixed-dim: #e9c176;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #4e3700;
+  --color-on-primary-fixed: #261900;
+
+  --color-secondary: #545f72;
+  --color-secondary-container: #d5e0f7;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #586377;
+
+  --color-tertiary: #485e8b;
+  --color-tertiary-container: #8fa5d6;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #233a65;
+
+  --color-surface: #fff8f3;
+  --color-surface-bright: #fff8f3;
+  --color-surface-dim: #e1d9d0;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #fbf2e9;
+  --color-surface-container: #f5ede4;
+  --color-surface-container-high: #efe7de;
+  --color-surface-container-highest: #e9e1d8;
+  --color-surface-variant: #e9e1d8;
+  --color-on-surface: #1e1b16;
+  --color-on-surface-variant: #4e4639;
+  --color-inverse-surface: #34302a;
+  --color-inverse-on-surface: #f8efe6;
+
+  --color-outline: #7f7667;
+  --color-outline-variant: #d1c5b4;
+
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error: #ffffff;
+  --color-on-error-container: #93000a;
+
+  --color-success: #15803d;
+  --color-success-light: #dcfce7;
+
+  --color-background: #fff8f3;
+  --color-on-background: #1e1b16;
+
+  /* Legacy compat (used in some components) */
+  --color-bg-main: #fff8f3;
+  --color-bg-card: #ffffff;
+  --color-gold-500: #c5a059;
+  --color-gold-400: #e9c176;
 }
 
-/* Base custom visual helpers */
+/* ── Base ── */
 body {
-  background-color: #0D0D0F;
-  color: #E5E7EB;
+  background-color: #fff8f3;
+  color: #1e1b16;
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: contain;
 }
 
-/* Custom fade effects for elegant navigation transitions */
+/* ── Glass card surface ── */
+.glass-card {
+  background: #ffffff;
+  border: 1px solid #d1c5b4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* ── Pulse animations ── */
+.pulsing-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%  { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1;   transform: scale(1.1); }
+  100%{ opacity: 0.4; transform: scale(0.9); }
+}
+
+/* ── Slide-up for drawers ── */
+@keyframes slideInUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.animate-slide-in-up {
+  animation: slideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Fade-in for tabs ── */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-
 .animate-fade-in {
-  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: #0D0D0F;
-}
-::-webkit-scrollbar-thumb {
-  background: #25252B;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #C5A059;
+/* ── Custom scrollbar ── */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #f5ede4; }
+::-webkit-scrollbar-thumb { background: #d1c5b4; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #c5a059; }
+
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ── Material Symbols ── */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+  line-height: 1;
 }
 
-.no-scrollbar {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+/* ── Gold gradient button ── */
+.gold-gradient {
+  background: linear-gradient(135deg, #c5a059 0%, #775a19 100%);
 }
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
+
+/* ── Custom switch ── */
+.custom-switch {
+  width: 36px; height: 20px;
+  background: #efe7de;
+  border-radius: 99px;
+  position: relative;
+  cursor: pointer;
+  border: 1px solid #d1c5b4;
+  transition: background 0.2s, border-color 0.2s;
 }
+.custom-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  background: #7f7667;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+.switch-active::after { left: 20px; background: #775a19; box-shadow: 0 0 4px rgba(119,90,25,0.3); }
+.switch-active { background: #ffdea5; border-color: #775a19; }
+
+/* ── Accordion ── */
+.accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+.accordion-open .accordion-content { max-height: 600px; }
+.accordion-open .accordion-chevron { transform: rotate(180deg); }
+.accordion-chevron { transition: transform 0.3s ease; }

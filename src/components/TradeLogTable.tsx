@@ -1,6 +1,4 @@
-import { useState } from "react";
 import { TradeLog } from "../types";
-import { Download, FileSpreadsheet, Trash2, ShieldAlert } from "lucide-react";
 
 interface TradeLogTableProps {
   logs: TradeLog[];
@@ -8,225 +6,131 @@ interface TradeLogTableProps {
 }
 
 export default function TradeLogTable({ logs, onClearLogs }: TradeLogTableProps) {
-  const [confirmClear, setConfirmClear] = useState(false);
-  // Take last 50 trades, with most recent on top (it's already sorted that way in the useBot hook)
-  const displayLogs = logs.slice(0, 50);
-
-  // Exporters for CSV formatting
-  const exportToCSV = () => {
-    if (logs.length === 0) return;
-
-    const headers = [
-      "Trade #",
-      "Timestamp",
-      "Symbol",
-      "Mode",
-      "Under %",
-      "Signal Strength",
-      "Barrier",
-      "Stake",
-      "Multiplier",
-      "Outcome",
-      "Profit",
-      "Running Session Profit",
-      "Daily Trade No.",
-      "Consec Losses Before",
-      "In Recovery"
-    ];
-
-    const rows = logs.map((log) => [
-      log.id,
-      log.timestamp,
-      log.symbol,
-      log.mode,
-      `${log.under_pct}%`,
-      log.signal_strength,
-      log.barrier,
-      `$${log.stake.toFixed(2)}`,
-      `x${log.multiplier}`,
-      log.outcome,
-      `$${log.profit.toFixed(2)}`,
-      `$${log.session_profit.toFixed(2)}`,
-      log.daily_trade_no,
-      log.consecutive_losses_before,
-      log.in_recovery ? "True" : "False"
-    ]);
-
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((row) => row.map((val) => `"${val}"`).join(","))].join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `deriv_digit_bot_trades_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const totalProfit = logs.reduce((sum, l) => sum + l.profit, 0);
+  const wins = logs.filter((l) => l.outcome === "WIN").length;
+  const losses = logs.filter((l) => l.outcome === "LOSS").length;
+  const winRate = logs.length > 0 ? ((wins / logs.length) * 100).toFixed(1) : "0.0";
 
   return (
-    <div className="bg-bg-card border border-white/[0.08] rounded-xl p-5 shadow-sm animate-fade-in font-sans">
-      {/* Header section */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-white/[0.08] gap-3 mb-4">
+    <div className="flex flex-col gap-4 animate-fade-in pb-4">
+      {/* Header + Clear */}
+      <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-xs font-bold text-white tracking-widest uppercase flex items-center gap-2.5">
-            <FileSpreadsheet className="h-5 w-5 text-gold-500" /> TRANSACTION ACTIVITY LOGS
-          </h2>
-          <p className="text-[10px] text-neutral-500 font-medium uppercase tracking-wider mt-1">Showing last 50 transactions, sorted by newest first</p>
+          <h1 className="text-xl font-black text-[#1e1b16] uppercase tracking-[0.05em]">TRADE HISTORY</h1>
+          <p className="text-[11px] text-[#4e4639] mt-0.5">Real-time algorithmic execution log</p>
         </div>
+        {logs.length > 0 && (
+          <button
+            type="button"
+            onClick={() => { if (window.confirm("Clear all trade logs?")) onClearLogs(); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#ffdad6] text-error border border-error/20 text-[10px] font-bold uppercase tracking-wider hover:bg-error hover:text-white transition-all active:scale-95 cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-sm">delete_sweep</span>
+            CLEAR LOGS
+          </button>
+        )}
+      </div>
 
-        <div className="flex items-center gap-2">
-          {logs.length > 0 && (
-            <>
-              <button
-                type="button"
-                onClick={exportToCSV}
-                className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase px-3 py-2 rounded-lg border border-gold-500/25 text-gold-500 bg-gold-500/5 hover:bg-gold-500/10 active:scale-95 transition-all outline-none cursor-pointer font-sans"
-              >
-                <Download className="h-3.5 w-3.5" /> Export to CSV
-              </button>
-              {confirmClear ? (
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg border border-rose-500/30 bg-rose-500/5 animate-fade-in">
-                  <span className="text-[9px] font-bold tracking-wider text-rose-400 uppercase">Clear logs?</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClearLogs();
-                      setConfirmClear(false);
-                    }}
-                    className="text-[9px] font-mono font-bold uppercase px-2 py-1 bg-rose-500 text-white rounded cursor-pointer hover:bg-rose-600 transition-all"
-                  >
-                    Yes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmClear(false)}
-                    className="text-[9px] font-mono font-bold uppercase px-2 py-1 bg-neutral-800 text-neutral-300 rounded cursor-pointer hover:bg-neutral-700 transition-all"
-                  >
-                    No
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setConfirmClear(true)}
-                  className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase px-3 py-2 rounded-lg border border-rose-500/25 text-rose-450 bg-rose-500/5 hover:bg-rose-500/10 active:scale-95 transition-all outline-none cursor-pointer font-sans"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Clear History
-                </button>
-              )}
-            </>
-          )}
+      {/* Session overview */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="glass-card rounded-xl p-4 flex flex-col gap-1">
+          <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">TOTAL P&L</span>
+          <div className={`text-xl font-bold ${totalProfit >= 0 ? "text-[#485e8b]" : "text-error"}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+            {totalProfit >= 0 ? `+$${totalProfit.toFixed(2)}` : `-$${Math.abs(totalProfit).toFixed(2)}`}
+          </div>
+          <span className="text-[9px] text-[#7f7667] uppercase">USD</span>
+        </div>
+        <div className="glass-card rounded-xl p-4 flex flex-col gap-1">
+          <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">WIN RATE</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xl font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>{winRate}%</span>
+            <span className="material-symbols-outlined text-[#775a19] text-sm">analytics</span>
+          </div>
+          <span className="text-[9px] text-[#7f7667] uppercase">{wins}W / {losses}L</span>
         </div>
       </div>
 
+      {/* Stats strip */}
+      {logs.length > 0 && (
+        <div className="flex gap-3 overflow-x-auto no-scrollbar">
+          <div className="glass-card flex-shrink-0 px-4 py-3 rounded-lg flex items-center gap-3">
+            <span className="material-symbols-outlined text-[#775a19] text-[20px]">trending_up</span>
+            <div>
+              <div className="text-[9px] text-[#4e4639] uppercase tracking-wider font-bold">TOTAL TRADES</div>
+              <div className="text-sm font-bold text-[#1e1b16]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>{logs.length}</div>
+            </div>
+          </div>
+          <div className="glass-card flex-shrink-0 px-4 py-3 rounded-lg flex items-center gap-3">
+            <span className="material-symbols-outlined text-[#4e4639] text-[20px]">bolt</span>
+            <div>
+              <div className="text-[9px] text-[#4e4639] uppercase tracking-wider font-bold">BEST PROFIT</div>
+              <div className="text-sm font-bold text-success" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                ${Math.max(...logs.map((l) => l.profit)).toFixed(2)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
       {logs.length === 0 ? (
-        <div className="py-12 text-center text-neutral-550 flex flex-col items-center justify-center gap-3">
-          <Trash2 className="h-9 w-9 text-neutral-700" />
-          <p className="text-xs uppercase tracking-widest text-neutral-500 font-bold">No transactions executed in this session yet</p>
+        <div className="glass-card rounded-xl p-12 flex flex-col items-center justify-center text-center gap-3">
+          <span className="material-symbols-outlined text-[#d1c5b4] text-5xl">history</span>
+          <p className="text-[11px] text-[#7f7667] font-bold uppercase tracking-wider">No trades executed yet</p>
+          <p className="text-[10px] text-[#7f7667]/70 max-w-[240px]">Execution records will appear here once the bot begins trading cycles.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-white/[0.06]">
-          <table className="w-full text-left border-collapse min-w-[800px] text-[11px]">
-            <thead>
-              <tr className="bg-white/[0.01] border-b border-white/[0.08] text-neutral-500 font-black tracking-widest uppercase font-sans text-[8.5px]">
-                <th className="py-3 px-4 text-center">#</th>
-                <th className="py-3 px-4">Time Settlement</th>
-                <th className="py-3 px-4 text-center">Market</th>
-                <th className="py-3 px-4 text-center">Mode</th>
-                <th className="py-3 px-4 text-right">Stake</th>
-                <th className="py-3 px-4 text-center">Multiplier</th>
-                <th className="py-3 px-4 text-center">Under %</th>
-                <th className="py-3 px-4 text-center">Signal Strength</th>
-                <th className="py-3 px-4 text-center">Outcome</th>
-                <th className="py-3 px-4 text-right">Profit / Loss</th>
-                <th className="py-3 px-4 text-right">Running P&L</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.04] font-mono">
-              {displayLogs.map((log) => {
-                const isWin = log.outcome === "WIN";
-                return (
-                  <tr
-                    key={log.id}
-                    className={`transition-colors duration-150 hover:bg-[#181820] ${
-                      isWin ? "bg-emerald-500/[0.01]" : "bg-rose-500/[0.01]"
-                    }`}
-                  >
-                    <td className="py-3.5 px-4 font-bold text-center text-white">{log.id}</td>
-                    <td className="py-3.5 px-4 text-[#e2e8f0]">
-                      {new Date(log.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit"
-                      })}{" "}
-                      <span className="text-[9.5px] text-neutral-500 ml-1 font-medium font-sans uppercase">
-                        ({new Date(log.timestamp).toLocaleDateString([], { month: "short", day: "numeric" })})
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-center text-white font-bold">{log.symbol}</td>
-                    <td className="py-3.5 px-4 text-center">
-                      {(() => {
-                        let badgeStyle = "bg-white/[0.03] text-neutral-300 border-white/[0.06]";
-                        let label: string = log.mode;
-                        if (log.mode === "Martingale") {
-                          badgeStyle = "bg-amber-500/10 text-amber-500 border-amber-500/20";
-                        } else if (log.mode === "PayoutAdaptive") {
-                          badgeStyle = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-                          label = "Payout-Aware";
-                        } else if (log.mode === "DAlembert") {
-                          badgeStyle = "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
-                          label = "D'Alembert";
-                        } else if (log.mode === "GradualRecovery") {
-                          badgeStyle = "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20";
-                          label = "Split-Martingale";
-                        }
-                        return (
-                          <span className={`text-[8.5px] font-bold px-2 py-0.5 rounded leading-3 uppercase border font-sans tracking-wide ${badgeStyle}`}>
-                            {label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="py-3.5 px-4 text-right text-white font-bold">${log.stake.toFixed(2)}</td>
-                    <td className="py-3.5 px-4 text-center text-neutral-300">x{log.multiplier}</td>
-                    <td className="py-3.5 px-4 text-center text-white font-bold">{log.under_pct.toFixed(1)}%</td>
-                    <td className="py-3.5 px-4 text-center">
-                      <span className="text-neutral-500 font-sans font-semibold text-[9.5px] uppercase tracking-wider">
-                        {log.signal_strength}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <span
-                        className={`text-[9px] font-bold px-2 py-1 rounded leading-none uppercase tracking-widest font-sans border ${
-                          isWin ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                        }`}
+        <div className="glass-card rounded-xl overflow-hidden">
+          <div className="overflow-x-auto no-scrollbar">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-[#f5ede4]">
+                <tr className="border-b border-[#d1c5b4]">
+                  <th className="px-3 py-2.5 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.1em]">#</th>
+                  <th className="px-3 py-2.5 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.1em]">TIME</th>
+                  <th className="px-3 py-2.5 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.1em]">SYMBOL</th>
+                  <th className="px-3 py-2.5 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.1em]">MODE</th>
+                  <th className="px-3 py-2.5 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.1em] text-right">STAKE</th>
+                  <th className="px-3 py-2.5 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.1em] text-center">STATUS</th>
+                  <th className="px-3 py-2.5 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.1em] text-right">P&L</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#d1c5b4]/30">
+                {logs.map((log) => {
+                  const t = new Date(log.timestamp);
+                  const timeStr = t.toLocaleTimeString("en-US", { hour12: false });
+                  const modeShort = log.mode === "GradualRecoveryProLite" ? "SPL-PRO-L" : log.mode === "GradualRecoveryPro" ? "SPL-PRO" : log.mode === "GradualRecoveryLite" ? "SPL-L" : log.mode === "GradualRecovery" ? "SPL-M" : "STD";
+
+                  return (
+                    <tr key={log.id} className="hover:bg-[#fbf2e9] transition-colors">
+                      <td className="px-3 py-2.5 text-[12px] text-[#7f7667]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>{log.daily_trade_no}</td>
+                      <td className="px-3 py-2.5 text-[12px] text-[#1e1b16]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>{timeStr}</td>
+                      <td className="px-3 py-2.5 text-[12px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {log.symbol.replace("1HZ", "V").replace("V", "V").replace("R_", "V")}
+                      </td>
+                      <td className="px-3 py-2.5 text-[11px] text-[#4e4639]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        U-{log.barrier}
+                        {log.multiplier > 1 && <span className="text-[9px] opacity-60 ml-1">M{log.multiplier}</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] text-right text-[#1e1b16]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>${log.stake.toFixed(2)}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        {log.outcome === "WIN" ? (
+                          <span className="inline-block px-2 py-0.5 rounded bg-[#d5e0f7] text-[#485e8b] text-[9px] font-black uppercase tracking-wider">WIN</span>
+                        ) : (
+                          <span className="inline-block px-2 py-0.5 rounded bg-[#ffdad6] text-error text-[9px] font-black uppercase tracking-wider">LOSS</span>
+                        )}
+                      </td>
+                      <td
+                        className={`px-3 py-2.5 text-[12px] font-bold text-right ${log.outcome === "WIN" ? "text-[#485e8b]" : "text-error"}`}
+                        style={{ fontFamily: "IBM Plex Mono, monospace" }}
                       >
-                        {log.outcome}
-                      </span>
-                    </td>
-                    <td
-                      className={`py-3.5 px-4 text-right font-black text-sm ${
-                        isWin ? "text-emerald-400" : "text-rose-500"
-                      }`}
-                    >
-                      {isWin ? `+$${log.profit.toFixed(2)}` : `-$${Math.abs(log.profit).toFixed(2)}`}
-                    </td>
-                    <td
-                      className={`py-3.5 px-4 text-right font-black text-sm ${
-                        log.session_profit >= 0 ? "text-emerald-400" : "text-rose-500"
-                      }`}
-                    >
-                      {log.session_profit >= 0
-                        ? `+$${log.session_profit.toFixed(2)}`
-                        : `-$${Math.abs(log.session_profit).toFixed(2)}`}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        {log.profit >= 0 ? `+$${log.profit.toFixed(2)}` : `-$${Math.abs(log.profit).toFixed(2)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

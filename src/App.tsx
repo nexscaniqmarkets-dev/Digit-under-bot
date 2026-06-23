@@ -1,17 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useBot } from "./utils/useBot";
 import { SYMBOLS } from "./types";
-import {
-  Download,
-  Terminal,
-  X,
-  AlertTriangle,
-  LayoutDashboard,
-  Activity,
-  FileSpreadsheet,
-  Settings,
-  Wallet
-} from "lucide-react";
 import Header from "./components/Header";
 import ControlPanel from "./components/ControlPanel";
 import StatsBar from "./components/StatsBar";
@@ -20,78 +9,73 @@ import Leaderboard from "./components/Leaderboard";
 import SettingsPanel from "./components/SettingsPanel";
 import TradeLogTable from "./components/TradeLogTable";
 import SessionSummaryModal from "./components/SessionSummaryModal";
-import { PORTABLE_HTML_TEMPLATE } from "./utils/portableTemplate";
 import AuthPanel from "./components/AuthPanel";
 import FundsPanel from "./components/FundsPanel";
+import { PORTABLE_HTML_TEMPLATE } from "./utils/portableTemplate";
+
+type Tab = "dashboard" | "scanner" | "history" | "settings" | "funds";
+
+const NAV_TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: "scanner",   label: "Markets",  icon: "candlestick_chart" },
+  { id: "funds",     label: "Funds",    icon: "account_balance_wallet" },
+  { id: "dashboard", label: "Trade",    icon: "smart_toy" },
+  { id: "history",   label: "History",  icon: "receipt_long" },
+  { id: "settings",  label: "Settings", icon: "tune" },
+];
 
 export default function App() {
   const {
-    config,
-    saveConfig,
-    botState,
-    activeSymbol,
-    balance,
-    accountEmail,
-    isRealAccount,
-    sessionProfit,
-    dailyTradesCount,
-    consecutiveLosses,
-    multiplier,
-    inRecovery,
-    sequenceDone,
-    connectionStatus,
-    reconnectCountdown,
-    symbolStates,
-    toasts,
-    toastHistory,
-    removeToast,
-    tradeLogs,
-    clearTradeLogs,
-    sessionStats,
-    showSummary,
-    closeSummary,
-    startBot,
-    stopBot,
-    resetDemoBalance,
-    currentUserEmail,
-    login,
-    signup,
-    logout,
-    switchToDemo,
-    switchToDeriv
+    config, saveConfig, botState, activeSymbol,
+    balance, accountEmail, isRealAccount,
+    sessionProfit, dailyTradesCount, consecutiveLosses, multiplier,
+    connectionStatus, reconnectCountdown,
+    symbolStates, toasts, toastHistory, removeToast,
+    tradeLogs, clearTradeLogs, sessionStats, showSummary, closeSummary,
+    startBot, stopBot, resetDemoBalance,
+    currentUserEmail, login, logout, switchToDemo, switchToDeriv,
   } = useBot();
 
-  // Tab State
-  const [activeTab, setActiveTab ] = useState<"dashboard" | "scanner" | "history" | "settings" | "funds">("dashboard");
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [bypassAuth, setBypassAuth] = useState(false);
   const [telegramUser, setTelegramUser] = useState<any>(null);
-  const [bankBalance, setBankBalance] = useState<number>(0);
+  const [bankBalance, setBankBalance] = useState(0);
   const [hasSavedDerivSession, setHasSavedDerivSession] = useState(false);
+  const [showLogsDrawer, setShowLogsDrawer] = useState(false);
+  const [lastOpenedLength, setLastOpenedLength] = useState(0);
+  const [inspectSymbol, setInspectSymbol] = useState("1HZ100V");
 
   const telegramId = telegramUser?.id ? String(telegramUser.id) : "default";
   const actualBalance = balance ? parseFloat(balance) : null;
-  // Reserved Bank only ever applies to sandbox demo — Deriv balance is always shown raw/untouched
-  const availableBalance = actualBalance !== null
-    ? (!currentUserEmail ? Math.max(0, actualBalance - bankBalance).toFixed(2) : actualBalance.toFixed(2))
-    : null;
+  const availableBalance =
+    actualBalance !== null
+      ? (!currentUserEmail ? Math.max(0, actualBalance - bankBalance).toFixed(2) : actualBalance.toFixed(2))
+      : null;
 
-  // Load bank balance only in sandbox demo mode — Reserved Bank never applies to Deriv accounts
+  const unreadCount = toastHistory.length > lastOpenedLength ? toastHistory.length - lastOpenedLength : 0;
+  const isRunning = botState !== "STATE_IDLE" && botState !== "STATE_STOPPED";
+
+  const activeSymbolName = SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol;
+  const inspectSymbolState = symbolStates[inspectSymbol];
+  const activeSymbolState = activeSymbol ? symbolStates[activeSymbol] : undefined;
+
+  // Sync inspect to active bot symbol
+  useEffect(() => { if (activeSymbol) setInspectSymbol(activeSymbol); }, [activeSymbol]);
+
+  // Load bank balance in sandbox mode
   useEffect(() => {
     if (!currentUserEmail && bypassAuth && telegramId) {
       fetch(`/api/bank/balance?telegramId=${telegramId}`)
-        .then(r => r.json())
-        .then(data => setBankBalance(data.balance ?? 0))
+        .then((r) => r.json())
+        .then((d) => setBankBalance(d.balance ?? 0))
         .catch(() => {});
     } else if (currentUserEmail) {
-      // Connected to Deriv — Reserved Bank does not apply, reset to 0 for display purposes
       setBankBalance(0);
     }
   }, [currentUserEmail, bypassAuth, telegramId]);
 
+  // Telegram WebApp init + sequential session restore
   useEffect(() => {
-    const runSequentialRestore = (uid: string, retriesLeft: number = 3) => {
-      console.log(`[App] Starting sequential restore for uid=${uid}, retriesLeft=${retriesLeft}`);
-      // Sequential flow: try Deriv auto-login FIRST, only restore sandbox if that fails
+    const runRestore = (uid: string, retries = 3) => {
       fetch("/api/auth/auto-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -99,456 +83,274 @@ export default function App() {
       })
         .then((r) => r.json())
         .then((data) => {
-          console.log("[App] auto-login response:", data);
-          if (data.success) {
-            console.log("[Session] Auto-login successful");
+          if (data.success || data.reason === "last_mode_was_demo") {
             setHasSavedDerivSession(true);
-          } else if (data.reason === "last_mode_was_demo") {
-            // User has a Deriv session but chose to stay in demo mode
-            setHasSavedDerivSession(true);
-            return fetch("/api/auth/restore-sandbox", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
+          }
+          if (data.reason === "last_mode_was_demo" || !data.success) {
+            fetch("/api/auth/restore-sandbox", {
+              method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ telegramId: uid }),
-            })
-              .then((r) => r.json())
-              .then((d) => console.log("[App] restore-sandbox response:", d))
-              .catch((e) => console.error("[App] restore-sandbox fetch error:", e));
-          } else {
-            // No Deriv session — restore sandbox demo balance and bank from MongoDB
-            return fetch("/api/auth/restore-sandbox", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ telegramId: uid }),
-            })
-              .then((r) => r.json())
-              .then((d) => console.log("[App] restore-sandbox response:", d))
-              .catch((e) => console.error("[App] restore-sandbox fetch error:", e));
+            }).catch(() => {});
           }
         })
-        .catch((e) => {
-          console.error(`[App] auto-login fetch failed (retriesLeft=${retriesLeft}):`, e);
-          // Render free tier cold-start can take 50+ seconds — retry instead of giving up silently
-          if (retriesLeft > 0) {
-            setTimeout(() => runSequentialRestore(uid, retriesLeft - 1), 3000);
-          } else {
-            console.error("[App] All restore retries exhausted — balance may show stale/default values");
-          }
-        });
+        .catch(() => { if (retries > 0) setTimeout(() => runRestore(uid, retries - 1), 3000); });
     };
 
-    const detectTelegramUserWithRetry = (attemptsLeft: number) => {
+    const detectTg = (attempts: number) => {
       if (typeof window !== "undefined" && window.Telegram?.WebApp) {
-        const webApp = window.Telegram.WebApp;
-        webApp.ready();
-        webApp.expand();
+        const wa = window.Telegram.WebApp;
+        wa.ready(); wa.expand();
         try {
-          if (webApp.setHeaderColor) webApp.setHeaderColor("#0c0c10");
-          if (webApp.setBackgroundColor) webApp.setBackgroundColor("#0c0c10");
-        } catch (err) {
-          console.warn("Setting Telegram header/bg color warning:", err);
+          if (wa.setHeaderColor) wa.setHeaderColor("#fff8f3");
+          if (wa.setBackgroundColor) wa.setBackgroundColor("#fff8f3");
+        } catch {}
+        if (wa.initDataUnsafe?.user) {
+          const u = wa.initDataUnsafe.user;
+          setTelegramUser(u); setBypassAuth(true); runRestore(String(u.id)); return;
         }
-        if (webApp.initDataUnsafe?.user) {
-          const tgUser = webApp.initDataUnsafe.user;
-          setTelegramUser(tgUser);
-          setBypassAuth(true);
-          runSequentialRestore(String(tgUser.id));
-          return;
-        }
-        // Telegram WebApp object exists but user data hasn't populated yet — retry briefly
-        if (attemptsLeft > 0) {
-          setTimeout(() => detectTelegramUserWithRetry(attemptsLeft - 1), 150);
-          return;
-        }
+        if (attempts > 0) { setTimeout(() => detectTg(attempts - 1), 150); return; }
       }
-      // No Telegram WebApp, or user data never populated after retries — fall back to web UUID
       let webId = localStorage.getItem("digit_bot_web_uid");
-      if (!webId) {
-        webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-        localStorage.setItem("digit_bot_web_uid", webId);
-      }
-      setBypassAuth(true);
-      runSequentialRestore(webId);
+      if (!webId) { webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("digit_bot_web_uid", webId); }
+      setBypassAuth(true); runRestore(webId);
     };
-
-    detectTelegramUserWithRetry(10); // retry up to 10 times (~1.5s total) before falling back
+    detectTg(10);
   }, []);
 
-  // Watch tradeLogs length to trigger haptic vibrations when inside Telegram WebApp
-  const prevLogsCountRef = useRef(0);
+  // Haptic on trade outcome
+  const prevLogsRef = useRef(0);
   useEffect(() => {
-    if (tradeLogs.length > prevLogsCountRef.current) {
-      if (prevLogsCountRef.current > 0) {
-        const latestLog = tradeLogs[0]; // sorted newest first
-        if (latestLog && typeof window !== "undefined" && window.Telegram?.WebApp?.HapticFeedback) {
-          const haptic = window.Telegram.WebApp.HapticFeedback;
-          if (latestLog.outcome === "WIN") {
-            try { haptic.notificationOccurred("success"); } catch (e) {}
-          } else {
-            try { haptic.notificationOccurred("error"); } catch (e) {}
-          }
-        }
+    if (tradeLogs.length > prevLogsRef.current && prevLogsRef.current > 0) {
+      const latest = tradeLogs[0];
+      if (latest && window.Telegram?.WebApp?.HapticFeedback) {
+        try {
+          latest.outcome === "WIN"
+            ? window.Telegram.WebApp.HapticFeedback.notificationOccurred("success")
+            : window.Telegram.WebApp.HapticFeedback.notificationOccurred("error");
+        } catch {}
       }
     }
-    prevLogsCountRef.current = tradeLogs.length;
+    prevLogsRef.current = tradeLogs.length;
   }, [tradeLogs]);
 
-  const triggerLightHaptic = () => {
-    if (typeof window !== "undefined" && window.Telegram?.WebApp?.HapticFeedback) {
-      try {
-        window.Telegram.WebApp.HapticFeedback.impactOccurred("light");
-      } catch (e) {}
-    }
+  const hapticLight = () => {
+    try { window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("light"); } catch {}
   };
 
   const handleLogout = async () => {
-    const tgId = telegramUser?.id;
-    await logout(tgId ? String(tgId) : undefined);
+    await logout(telegramUser?.id ? String(telegramUser.id) : undefined);
     setBypassAuth(false);
   };
 
-  // State for toggling custom notification history drawer at the bottom
-  const [showLogsDrawer, setShowLogsDrawer] = useState(false);
-  const [lastOpenedLength, setLastOpenedLength] = useState(0);
+  const handleTabChange = (tab: Tab) => { setActiveTab(tab); hapticLight(); };
 
-  const unreadCount = toastHistory.length > lastOpenedLength
-    ? toastHistory.length - lastOpenedLength
-    : 0;
-
-  const toggleLogsDrawer = () => {
-    if (!showLogsDrawer) {
-      setLastOpenedLength(toastHistory.length);
-    }
-    setShowLogsDrawer(!showLogsDrawer);
-  };
-
-  // User-selected symbol for detailed inspect graphs
-  const [inspectSymbol, setInspectSymbol] = useState<string>("1HZ100V");
-
-  // Dynamically sync inspection target to current bot active target
-  useEffect(() => {
-    if (activeSymbol) {
-      setInspectSymbol(activeSymbol);
-    }
-  }, [activeSymbol]);
-
-  // Download Standalone Client HTML5 file trigger
-  const downloadStandaloneClient = () => {
+  const downloadStandalone = () => {
     try {
       const blob = new Blob([PORTABLE_HTML_TEMPLATE], { type: "text/html" });
       const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "deriv_digit_bot_standalone.html";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (e) {
-      console.error("Export standalone files error: ", e);
-    }
+      const a = document.createElement("a"); a.href = url; a.download = "deriv_digit_bot_standalone.html";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    } catch {}
   };
 
-  const isRunning = botState !== "STATE_IDLE" && botState !== "STATE_STOPPED";
-
-  // Find info objects
-  const activeSymbolName = SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol;
-  const inspectSymbolState = symbolStates[inspectSymbol];
-  const activeSymbolState = activeSymbol ? symbolStates[activeSymbol] : undefined;
-
   return (
-    <div className="min-h-screen bg-bg-main text-neutral-200 font-sans antialiased pb-32 flex flex-col justify-between selection:bg-gold-500/20 selection:text-gold-400">
-      {/* Top Stack Content Wrapper */}
-      <div className="flex flex-col gap-6 w-full">
-        {/* Header segment */}
-        <Header
-          connectionStatus={connectionStatus}
-          balance={availableBalance}
-          accountEmail={accountEmail}
-          isRealAccount={isRealAccount}
-          botState={botState}
-          activeSymbolName={activeSymbolName}
-          resetDemoBalance={resetDemoBalance}
-          currentUserEmail={currentUserEmail}
-          onLogout={handleLogout}
-          telegramUser={telegramUser}
-        />
+    <div className="min-h-screen bg-[#fff8f3] text-[#1e1b16] font-sans antialiased selection:bg-[#ffdea5] selection:text-[#4e3700]">
 
-        {/* Tab-driven Content Grid */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex flex-col gap-6">
-          {!currentUserEmail && !bypassAuth ? (
-            <div className="py-12 w-full flex items-center justify-center">
-              <AuthPanel
-                onLogin={async (token: string) => {
-                  const result = await login(token);
-                  if (result.success && telegramUser?.id) {
-                    setHasSavedDerivSession(true);
-                    // Save session so user stays logged in next time
-                    fetch("/api/auth/save-session", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ telegramId: telegramUser.id, derivToken: token }),
-                    }).catch(() => {});
-                  }
-                  return result;
-                }}
-                onBypass={() => setBypassAuth(true)}
-                telegramUser={telegramUser}
-              />
+      {/* ── TOASTS ── */}
+      <div className="fixed top-16 right-3 z-[60] flex flex-col gap-2 max-w-[280px]">
+        {toasts.map((t) => {
+          const styles: Record<string, string> = {
+            green: "bg-[#f0fdf4] border-success/30 text-success",
+            red: "bg-[#ffdad6]/80 border-error/30 text-error",
+            blue: "bg-[#ffdea5]/60 border-[#c5a059]/40 text-[#775a19]",
+            orange: "bg-orange-50 border-orange-200 text-orange-700",
+          };
+          return (
+            <div key={t.id} className={`flex items-start gap-2 px-3 py-2.5 rounded-xl border shadow-md backdrop-blur-sm text-[11px] font-medium animate-fade-in ${styles[t.type] || styles.blue}`}>
+              <p className="flex-1 leading-snug">{t.message}</p>
+              <button type="button" onClick={() => removeToast(t.id)} className="shrink-0 opacity-60 hover:opacity-100 mt-0.5 cursor-pointer">
+                <span className="material-symbols-outlined text-[14px]">close</span>
+              </button>
             </div>
-          ) : (
-            <>
-              {/* Optional Prompt to Log In when Bypassed (Guest Trial mode) */}
-              {!currentUserEmail && bypassAuth && hasSavedDerivSession && (
-                <div className="bg-white/[0.02] border border-white/[0.05] p-3 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-neutral-400 font-sans text-xs w-full animate-fade-in">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                    <p>
-                      <span className="font-bold text-white mr-1.5 uppercase">Sandbox Demo Mode:</span>
-                      You have a saved Deriv account. Use the toggle in the Funds tab to switch back, or log in again if your token changed.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setBypassAuth(false)}
-                    className="px-3.5 py-1.5 bg-gold-500/10 hover:bg-gold-500 hover:text-black border border-gold-500/25 rounded-lg text-gold-400 text-[10px] font-bold uppercase transition-all shrink-0 cursor-pointer"
-                  >
-                    Re-login
-                  </button>
-                </div>
-              )}
-              {!currentUserEmail && bypassAuth && !hasSavedDerivSession && (
-                <div className="bg-white/[0.02] border border-white/[0.05] p-3 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-neutral-400 font-sans text-xs w-full animate-fade-in">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                    <p>
-                      <span className="font-bold text-white mr-1.5 uppercase">Trial Guest Mode Active:</span>
-                      Real-time index indicators are active but trades are strictly paper virtuals. Create a free account or login to trade on real accounts.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setBypassAuth(false)}
-                    className="px-3.5 py-1.5 bg-gold-500/10 hover:bg-gold-500 hover:text-black border border-gold-500/25 rounded-lg text-gold-400 text-[10px] font-bold uppercase transition-all shrink-0 cursor-pointer"
-                  >
-                    Login / Sign Up
-                  </button>
-                </div>
-              )}
-
-              {/* TAB 1: DASHBOARD (Active controllers + metrics list) */}
-              {activeTab === "dashboard" && (
-                <div className="flex flex-col gap-6 animate-fade-in duration-300">
-                  <ControlPanel
-                    botState={botState}
-                    config={config}
-                    onConfigChange={saveConfig}
-                    startBot={startBot}
-                    stopBot={stopBot}
-                    activeSymbol={activeSymbol}
-                    inspectSymbol={inspectSymbol}
-                    setInspectSymbol={setInspectSymbol}
-                    connectionStatus={connectionStatus}
-                    reconnectCountdown={reconnectCountdown}
-                  />
-
-                  <StatsBar
-                    config={config}
-                    botState={botState}
-                    activeSymbol={activeSymbol}
-                    activeSymbolState={activeSymbolState}
-                    sessionProfit={sessionProfit}
-                    dailyTradesCount={dailyTradesCount}
-                    consecutiveLosses={consecutiveLosses}
-                    multiplier={multiplier}
-                  />
-                  
-                  {/* Micro Helper Tip to point towards tabs */}
-                  <div className="bg-white/[0.01] border border-white/[0.04] p-4 rounded-xl text-center">
-                    <p className="text-[11px] text-neutral-400 font-medium uppercase tracking-wider">
-                      💡 The Bot is operating safely in the background. Use the bottom navigation bar to audit live markets or modify parameters.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 2: MARKETS & SCANNER */}
-              {activeTab === "scanner" && (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start animate-fade-in duration-300">
-                  {/* Left: Leaderboard list (13 systems) */}
-                  <div className="lg:col-span-4 h-full">
-                    <Leaderboard
-                      symbolStates={symbolStates}
-                      activeSymbol={activeSymbol}
-                      inspectSymbol={inspectSymbol}
-                      setInspectSymbol={setInspectSymbol}
-                      config={config}
-                    />
-                  </div>
-
-                  {/* Right: Detailed active inspecting visual panel graph */}
-                  <div className="lg:col-span-8 h-full">
-                    <AnalysisPanel
-                      inspectSymbolState={inspectSymbolState}
-                      referenceDigit={config.referenceDigit}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 3: TRANSACTION LOGS */}
-              {activeTab === "history" && (
-                <div className="animate-fade-in duration-300">
-                  <TradeLogTable logs={tradeLogs} onClearLogs={clearTradeLogs} />
-                </div>
-              )}
-
-              {/* TAB 4: SYSTEM SETTINGS */}
-              {activeTab === "settings" && (
-                <div className="animate-fade-in duration-300">
-                  <SettingsPanel config={config} saveConfig={saveConfig} isRunning={isRunning} />
-                </div>
-              )}
-
-              {/* TAB 5: FUNDS MANAGER */}
-              {activeTab === "funds" && (
-                <div className="animate-fade-in duration-300">
-                  <FundsPanel
-                    balance={balance}
-                    isRealAccount={isRealAccount}
-                    accountEmail={accountEmail}
-                    apiToken={config.apiToken}
-                    telegramId={telegramId}
-                    currentUserEmail={currentUserEmail}
-                    onSwitchToDemo={switchToDemo}
-                    onSwitchToDeriv={switchToDeriv}
-                    onBalanceRefresh={() => {
-                      fetch(`/api/bank/balance?telegramId=${telegramId}`)
-                        .then(r => r.json())
-                        .then(data => setBankBalance(data.balance ?? 0))
-                        .catch(() => {});
-                    }}
-                  />
-                </div>
-              )}
-            </>
-          )}
-        </main>
+          );
+        })}
       </div>
 
-      {/* Footer Info line */}
-      <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 w-full text-center text-[10px] tracking-wider uppercase text-neutral-500 border-t border-white/[0.06] pt-5 pb-10 flex flex-col sm:flex-row items-center justify-between gap-4 font-sans font-semibold">
-        <p className="flex items-center gap-1.5 font-medium leading-none">
-          <Terminal className="h-3.5 w-3.5 text-gold-500" /> Server-side Bot Background Mode Active
-        </p>
-      </footer>
+      {/* ── HEADER ── */}
+      <Header
+        connectionStatus={connectionStatus}
+        balance={availableBalance}
+        accountEmail={accountEmail}
+        isRealAccount={isRealAccount}
+        botState={botState}
+        activeSymbolName={activeSymbolName}
+        resetDemoBalance={resetDemoBalance}
+        currentUserEmail={currentUserEmail}
+        onLogout={handleLogout}
+        telegramUser={telegramUser}
+      />
 
-      {/* Polished Floating Dock Navigation Bar at the Bottom */}
+      {/* ── MAIN CONTENT ── */}
+      <main className="pt-16 pb-28 px-4 max-w-lg mx-auto w-full">
+        {!currentUserEmail && !bypassAuth ? (
+          /* Auth Gate */
+          <AuthPanel
+            onLogin={async (token) => {
+              const res = await login(token);
+              if (res.success && telegramUser?.id) {
+                setHasSavedDerivSession(true);
+                fetch("/api/auth/save-session", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ telegramId: telegramUser.id, derivToken: token }),
+                }).catch(() => {});
+              }
+              return res;
+            }}
+            onBypass={() => setBypassAuth(true)}
+            telegramUser={telegramUser}
+          />
+        ) : (
+          <div className="flex flex-col gap-4 mt-3">
+            {/* Guest Mode Banners */}
+            {!currentUserEmail && bypassAuth && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2">
+                  <span className="material-symbols-outlined text-amber-600 text-[18px] shrink-0 mt-0.5">warning</span>
+                  <p className="text-[11px] text-[#4e4639] leading-snug">
+                    <span className="font-black text-[#1e1b16] uppercase">{hasSavedDerivSession ? "Sandbox Demo Mode:" : "Trial Guest Mode:"} </span>
+                    {hasSavedDerivSession
+                      ? "You have a saved Deriv account. Use Funds tab to switch, or re-login if your token changed."
+                      : "Real-time indicators are active but trades are virtual. Login to trade real accounts."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBypassAuth(false)}
+                  className="shrink-0 px-2.5 py-1 bg-[#ffdea5] text-[#4e3700] border border-[#c5a059] rounded-lg text-[9px] font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap"
+                >
+                  {hasSavedDerivSession ? "Re-login" : "Login"}
+                </button>
+              </div>
+            )}
+
+            {/* Tab: Trade (Dashboard) */}
+            {activeTab === "dashboard" && (
+              <div className="flex flex-col gap-4 animate-fade-in">
+                <ControlPanel
+                  botState={botState} config={config} onConfigChange={saveConfig}
+                  startBot={startBot} stopBot={stopBot} activeSymbol={activeSymbol}
+                  inspectSymbol={inspectSymbol} setInspectSymbol={setInspectSymbol}
+                  connectionStatus={connectionStatus} reconnectCountdown={reconnectCountdown}
+                />
+                <StatsBar
+                  config={config} botState={botState} activeSymbol={activeSymbol}
+                  activeSymbolState={activeSymbolState} sessionProfit={sessionProfit}
+                  dailyTradesCount={dailyTradesCount} consecutiveLosses={consecutiveLosses}
+                  multiplier={multiplier}
+                />
+              </div>
+            )}
+
+            {/* Tab: Markets */}
+            {activeTab === "scanner" && (
+              <div className="flex flex-col gap-4 animate-fade-in">
+                <Leaderboard
+                  symbolStates={symbolStates} activeSymbol={activeSymbol}
+                  inspectSymbol={inspectSymbol} setInspectSymbol={setInspectSymbol}
+                  config={config}
+                />
+                <AnalysisPanel inspectSymbolState={inspectSymbolState} referenceDigit={config.referenceDigit} />
+              </div>
+            )}
+
+            {/* Tab: History */}
+            {activeTab === "history" && (
+              <div className="animate-fade-in">
+                <TradeLogTable logs={tradeLogs} onClearLogs={clearTradeLogs} />
+              </div>
+            )}
+
+            {/* Tab: Settings */}
+            {activeTab === "settings" && (
+              <div className="animate-fade-in">
+                <SettingsPanel config={config} saveConfig={saveConfig} isRunning={isRunning} />
+              </div>
+            )}
+
+            {/* Tab: Funds */}
+            {activeTab === "funds" && (
+              <div className="animate-fade-in">
+                <FundsPanel
+                  balance={balance} isRealAccount={isRealAccount} accountEmail={accountEmail}
+                  apiToken={config.apiToken} telegramId={telegramId}
+                  currentUserEmail={currentUserEmail}
+                  onSwitchToDemo={switchToDemo} onSwitchToDeriv={switchToDeriv}
+                  onBalanceRefresh={() => {
+                    fetch(`/api/bank/balance?telegramId=${telegramId}`)
+                      .then((r) => r.json())
+                      .then((d) => setBankBalance(d.balance ?? 0))
+                      .catch(() => {});
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* ── BOTTOM NAV ── */}
       {(currentUserEmail || bypassAuth) && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-4 pt-2 bg-gradient-to-t from-bg-main via-bg-main/90 to-transparent">
-          <nav className="max-w-md mx-auto bg-bg-card/95 backdrop-blur-lg border border-white/[0.08] shadow-2xl rounded-2xl p-1.5 flex justify-around items-center">
-            {/* Tab 1: Markets Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("scanner");
-                triggerLightHaptic();
-              }}
-              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
-                activeTab === "scanner"
-                  ? "bg-gold-500/10 text-gold-400 font-bold"
-                  : "text-neutral-400 hover:text-neutral-200"
-              }`}
-            >
-              <Activity className="h-4 w-4" />
-              <span className="text-[9px] uppercase tracking-wider">Markets</span>
-            </button>
-
-            {/* Tab 2: Funds Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("funds");
-                triggerLightHaptic();
-              }}
-              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
-                activeTab === "funds"
-                  ? "bg-gold-500/10 text-gold-400 font-bold"
-                  : "text-neutral-400 hover:text-neutral-200"
-              }`}
-            >
-              <Wallet className="h-4 w-4" />
-              <span className="text-[9px] uppercase tracking-wider">Funds</span>
-            </button>
-
-            {/* Tab 3: Trade Button (formerly Dashboard) — center position */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("dashboard");
-                triggerLightHaptic();
-              }}
-              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
-                activeTab === "dashboard"
-                  ? "bg-gold-500/10 text-gold-400 font-bold"
-                  : "text-neutral-400 hover:text-neutral-200"
-              }`}
-            >
-              <LayoutDashboard className="h-4 w-4" />
-              <span className="text-[9px] uppercase tracking-wider">Trade</span>
-            </button>
-
-            {/* Tab 4: History Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("history");
-                triggerLightHaptic();
-              }}
-              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
-                activeTab === "history"
-                  ? "bg-gold-500/10 text-gold-400 font-bold"
-                  : "text-neutral-400 hover:text-neutral-200"
-              }`}
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              <span className="text-[9px] uppercase tracking-wider">History</span>
-            </button>
-
-            {/* Tab 5: Settings Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("settings");
-                triggerLightHaptic();
-              }}
-              className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all duration-200 cursor-pointer flex-1 ${
-                activeTab === "settings"
-                  ? "bg-gold-500/10 text-gold-400 font-bold"
-                  : "text-neutral-400 hover:text-neutral-200"
-              }`}
-            >
-              <Settings className="h-4 w-4" />
-              <span className="text-[9px] uppercase tracking-wider">Settings</span>
-            </button>
+        <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-3 pt-2 bg-gradient-to-t from-[#fff8f3] via-[#fff8f3]/90 to-transparent">
+          <nav className="max-w-lg mx-auto bg-white/95 backdrop-blur-xl border border-[#d1c5b4] shadow-[0_-4px_24px_rgba(0,0,0,0.06)] rounded-2xl p-1.5 flex justify-around items-center">
+            {NAV_TABS.map(({ id, label, icon }) => {
+              const isActive = activeTab === id;
+              const isCenter = id === "dashboard";
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => handleTabChange(id)}
+                  className={`flex flex-col items-center gap-1 py-2 rounded-xl transition-all duration-200 cursor-pointer flex-1 relative ${
+                    isCenter
+                      ? isActive
+                        ? "bg-[#775a19] text-white shadow-md"
+                        : "bg-[#ffdea5] text-[#775a19]"
+                      : isActive
+                      ? "bg-[#f5ede4] text-[#775a19]"
+                      : "text-[#7f7667] hover:text-[#4e4639]"
+                  }`}
+                >
+                  <span
+                    className="material-symbols-outlined text-[20px]"
+                    style={{ fontVariationSettings: isActive ? "'FILL' 1" : "'FILL' 0" }}
+                  >
+                    {icon}
+                  </span>
+                  <span className={`text-[9px] uppercase tracking-[0.1em] font-bold ${isActive ? "opacity-100" : "opacity-70"}`}>
+                    {label}
+                  </span>
+                </button>
+              );
+            })}
           </nav>
         </div>
       )}
 
-      {/* Floating Action Button for Live Action Log updates */}
+      {/* ── FLOATING LOG BUTTON ── */}
       {(currentUserEmail || bypassAuth) && (
-        <div className="fixed bottom-24 right-5 z-40">
+        <div className="fixed bottom-24 right-4 z-40">
           <button
             type="button"
             onClick={() => {
-              toggleLogsDrawer();
-              triggerLightHaptic();
+              if (!showLogsDrawer) setLastOpenedLength(toastHistory.length);
+              setShowLogsDrawer(!showLogsDrawer);
+              hapticLight();
             }}
-            className="relative group p-3.5 rounded-full border border-gold-500/30 bg-[#15151c]/95 hover:bg-gold-500 hover:text-black text-gold-400 font-bold shadow-2xl transition-all duration-300 pointer-events-auto hover:scale-105 active:scale-95 cursor-pointer flex items-center justify-center"
-            title="Open Live Audit Alerts"
+            className="relative w-12 h-12 rounded-full bg-white border border-[#d1c5b4] shadow-lg flex items-center justify-center text-[#775a19] hover:bg-[#ffdea5] active:scale-95 transition-all cursor-pointer"
           >
-            <Terminal className="h-5 w-5" />
+            <span className="material-symbols-outlined text-[22px]">terminal</span>
             {unreadCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 h-5 min-w-[20px] px-1 rounded-full bg-orange-500 text-[10px] text-white font-black flex items-center justify-center border-2 border-bg-main animate-bounce">
+              <span className="absolute -top-1 -right-1 h-5 min-w-[20px] px-1 rounded-full bg-orange-500 text-[9px] text-white font-black flex items-center justify-center border-2 border-[#fff8f3] animate-bounce">
                 {unreadCount}
               </span>
             )}
@@ -556,80 +358,71 @@ export default function App() {
         </div>
       )}
 
-      {/* Slide-over/Bottom log activity list drawer */}
+      {/* ── LOG DRAWER ── */}
       {showLogsDrawer && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in pointer-events-auto">
-          <div className="bg-[#14141a] border border-white/[0.08] w-full max-w-lg rounded-t-2xl shadow-2xl overflow-hidden flex flex-col max-h-[70vh] animate-slide-in-up">
-            {/* Header */}
-            <div className="p-4 bg-[#1b1b22] border-b border-white/[0.06] flex items-center justify-between">
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 backdrop-blur-sm"
+          onClick={() => { setLastOpenedLength(toastHistory.length); setShowLogsDrawer(false); }}
+        >
+          <div
+            className="w-full max-w-lg bg-[#fff8f3] border border-[#d1c5b4] border-b-0 rounded-t-2xl shadow-2xl flex flex-col max-h-[70vh] animate-slide-in-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer header */}
+            <div className="p-4 bg-[#f5ede4] border-b border-[#d1c5b4] flex items-center justify-between rounded-t-2xl">
               <div className="flex items-center gap-2">
-                <Terminal className="h-4 w-4 text-gold-500" />
-                <span className="text-[11px] font-bold text-white uppercase tracking-wider">Live System Execution Logs</span>
-                <span className="text-[9px] font-mono bg-white/[0.03] text-neutral-400 px-1.5 py-0.5 rounded">
-                  {toastHistory.length} entry(s)
-                </span>
+                <span className="material-symbols-outlined text-[#775a19] text-[18px]">terminal</span>
+                <span className="text-[11px] font-bold text-[#1e1b16] uppercase tracking-wider">Live System Logs</span>
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#e9e1d8] text-[#4e4639]">{toastHistory.length}</span>
               </div>
               <div className="flex items-center gap-2">
                 {toastHistory.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearTradeLogs}
-                    className="text-[9px] font-bold text-neutral-500 hover:text-rose-400 transition-colors uppercase cursor-pointer"
-                  >
-                    Clear History
+                  <button type="button" onClick={clearTradeLogs} className="text-[9px] font-bold text-error uppercase tracking-wider cursor-pointer">
+                    Clear
                   </button>
                 )}
                 <button
                   type="button"
-                  onClick={() => {
-                    setLastOpenedLength(toastHistory.length);
-                    setShowLogsDrawer(false);
-                  }}
-                  className="p-1 rounded-lg hover:bg-white/[0.04] text-neutral-400 hover:text-white transition-colors"
+                  onClick={() => { setLastOpenedLength(toastHistory.length); setShowLogsDrawer(false); }}
+                  className="w-7 h-7 rounded-full border border-[#d1c5b4] flex items-center justify-center text-[#4e4639] cursor-pointer"
                 >
-                  <X className="h-4 w-4" />
+                  <span className="material-symbols-outlined text-[16px]">close</span>
                 </button>
               </div>
             </div>
 
-            {/* List Body */}
-            <div className="p-4 overflow-y-auto space-y-2.5 flex-1 min-h-[250px] bg-[#0c0c0f]">
+            {/* Drawer body */}
+            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-[200px]">
               {toastHistory.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center p-8 gap-2">
-                  <Terminal className="h-8 w-8 text-neutral-600 animate-pulse" />
-                  <p className="text-[11px] text-neutral-500 uppercase tracking-wider font-semibold">No System Alerts Recorded Yet</p>
-                  <p className="text-[9px] text-neutral-600 uppercase max-w-[280px]">Operational records will be logged dynamically when the bot begins diagnostic cycles.</p>
+                <div className="flex-1 flex flex-col items-center justify-center gap-2 py-10">
+                  <span className="material-symbols-outlined text-[#d1c5b4] text-4xl">terminal</span>
+                  <p className="text-[11px] text-[#7f7667] font-bold uppercase tracking-wider">No System Alerts Yet</p>
+                  <p className="text-[10px] text-[#7f7667]/60 text-center max-w-[220px]">Operational records will appear once the bot begins diagnostic cycles.</p>
                 </div>
               ) : (
-                toastHistory.slice().reverse().map((toast) => {
-                  let badgeColor = "border-white/[0.05] text-neutral-400 bg-white/[0.01]";
-                  if (toast.type === "blue") badgeColor = "border-gold-500/20 text-gold-400 bg-gold-500/5";
-                  else if (toast.type === "orange") badgeColor = "border-orange-500/20 text-orange-400 bg-orange-500/5";
-                  else if (toast.type === "green") badgeColor = "border-emerald-500/20 text-emerald-400 bg-emerald-500/5";
-                  else if (toast.type === "red") badgeColor = "border-rose-500/20 text-rose-450 bg-rose-500/5";
-
+                toastHistory.slice().reverse().map((t) => {
+                  const styles: Record<string, string> = {
+                    green: "border-success/30 bg-[#f0fdf4] text-success",
+                    red: "border-error/30 bg-[#ffdad6]/50 text-error",
+                    blue: "border-[#c5a059]/30 bg-[#ffdea5]/30 text-[#775a19]",
+                    orange: "border-orange-200 bg-orange-50 text-orange-700",
+                  };
                   return (
-                    <div
-                      key={toast.id}
-                      className={`p-3 rounded-lg border flex flex-col gap-1 text-left ${badgeColor}`}
-                    >
-                      <p className="text-xs font-semibold text-neutral-200 leading-snug">{toast.message}</p>
-                      <span className="text-[8px] font-mono text-neutral-500 tracking-wider">SYSTEM ACTION LOG ENTRY</span>
+                    <div key={t.id} className={`p-3 rounded-xl border flex flex-col gap-1 ${styles[t.type] || styles.blue}`}>
+                      <p className="text-[12px] font-medium text-[#1e1b16] leading-snug">{t.message}</p>
+                      <span className="text-[8px] font-bold uppercase tracking-widest opacity-50">SYSTEM LOG ENTRY</span>
                     </div>
                   );
                 })
               )}
             </div>
 
-            {/* Footer */}
-            <div className="p-3 bg-[#0c0c0f] border-t border-white/[0.04] text-center">
+            {/* Drawer footer */}
+            <div className="p-3 border-t border-[#d1c5b4]">
               <button
                 type="button"
-                onClick={() => {
-                  setLastOpenedLength(toastHistory.length);
-                  setShowLogsDrawer(false);
-                }}
-                className="w-full py-2 bg-[#1b1b22] border border-white/[0.06] rounded-lg text-white hover:bg-gold-500 hover:text-black hover:border-gold-500 transition-all text-[10px] font-bold tracking-wider uppercase cursor-pointer"
+                onClick={() => { setLastOpenedLength(toastHistory.length); setShowLogsDrawer(false); }}
+                className="w-full h-11 gold-gradient rounded-xl text-white text-[10px] font-bold uppercase tracking-wider cursor-pointer"
               >
                 Close Audit Viewer
               </button>
@@ -638,7 +431,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Stats summary Popups Modals shown when halted */}
+      {/* ── SESSION SUMMARY MODAL ── */}
       {showSummary && <SessionSummaryModal stats={sessionStats} onClose={closeSummary} />}
     </div>
   );

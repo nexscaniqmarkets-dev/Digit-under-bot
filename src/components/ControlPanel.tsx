@@ -1,5 +1,4 @@
 import { SYMBOLS, BotState, BotConfig } from "../types";
-import { Play, Square, Layers } from "lucide-react";
 
 interface ControlPanelProps {
   botState: BotState;
@@ -22,254 +21,202 @@ export default function ControlPanel({
   stopBot,
   activeSymbol,
   connectionStatus,
-  reconnectCountdown
+  reconnectCountdown,
 }: ControlPanelProps) {
   const isRunning = botState !== "STATE_IDLE" && botState !== "STATE_STOPPED";
 
-  // Mode change handler
-  const handleModeChange = (mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite" | "GradualRecoveryProLite") => {
+  const handleModeChange = (
+    mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite" | "GradualRecoveryProLite"
+  ) => {
     onConfigChange({ ...config, mode });
   };
 
-  // Get status details based on current botState ref model
   const getStatusDisplay = () => {
     switch (botState) {
       case "STATE_IDLE":
-        return {
-          text: "READY TO START",
-          sub: "Waiting for user initiation",
-          color: "text-neutral-400 border-neutral-800 bg-[#121216]/20",
-          dotColor: "bg-neutral-500"
-        };
+        return { text: "READY TO START", sub: "Waiting for user initiation", dot: "bg-[#d1c5b4]", color: "text-[#4e4639]", bg: "bg-[#f5ede4]", border: "border-[#d1c5b4]" };
       case "STATE_CONNECTING":
-        return {
-          text: "WS CONNECTING",
-          sub: reconnectCountdown !== null ? `Reconnecting in ${reconnectCountdown}s...` : "Establishing secure link to Broker Services...",
-          color: "text-amber-500 border-amber-500/20 bg-amber-500/5 animate-pulse",
-          dotColor: "bg-amber-500"
-        };
+        return { text: "WS CONNECTING", sub: reconnectCountdown !== null ? `Reconnecting in ${reconnectCountdown}s…` : "Establishing secure link to Broker Services…", dot: "bg-amber-500 pulsing-dot", color: "text-amber-700", bg: "bg-amber-50", border: "border-amber-200" };
       case "STATE_WARMING_UP":
-        return {
-          text: "WARMING UP CHANNELS",
-          sub: "Populating tick buffers for 13 markets (min. 120 each)...",
-          color: "text-gold-400 border-gold-500/20 bg-gold-500/5",
-          dotColor: "bg-gold-500"
-        };
+        return { text: "WARMING UP CHANNELS", sub: "Populating tick buffers for 13 markets (min. 120 each)…", dot: "bg-[#775a19] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#fff8e8]", border: "border-[#d1c5b4]" };
       case "STATE_SCANNING":
-        return {
-          text: "SCANNING ACTIVE CHANNELS",
-          sub: "Auto-evaluating 13 synthetic markets simultaneously...",
-          color: "text-gold-500 border-gold-500/30 bg-gold-500/10",
-          dotColor: "bg-gold-500"
-        };
+        return { text: "SCANNING ACTIVE CHANNELS", sub: "Auto-evaluating 13 synthetic markets simultaneously…", dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/30", border: "border-[#c5a059]/50" };
       case "STATE_CONFIRMING":
-        return {
-          text: "CONFIRMATION SIGNAL DETECTED",
-          sub: `Matching 2-tick Under ${config.referenceDigit} qualifiers on ${
-            SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol
-          }...`,
-          color: "text-gold-500 border-gold-500/40 bg-gold-500/15 shadow-[0_0_15px_rgba(197,160,89,0.08)]",
-          dotColor: "bg-gold-500"
-        };
+        return { text: "SIGNAL DETECTED", sub: `Matching 2-tick Under ${config.referenceDigit} qualifiers on ${SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol}…`, dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/40", border: "border-[#c5a059]" };
       case "STATE_TRADING":
-        return {
-          text: "CONTRACT SEQUENCE PLACED",
-          sub: "Executing rapid automated Digit Under settlements on broker...",
-          color: "text-emerald-500 border-emerald-500/40 bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.08)]",
-          dotColor: "bg-emerald-500"
-        };
+        return { text: "CONTRACT SEQUENCE PLACED", sub: "Executing rapid automated Digit Under settlements on broker…", dot: "bg-success", color: "text-success", bg: "bg-success-light/50", border: "border-success/30" };
       case "STATE_RECOVERY":
-        return {
-          text: "MARTINGALE RECOVERY SWEEP",
-          sub: "Awaiting next confirming target on same volatility index...",
-          color: "text-orange-500 border-orange-500/20 bg-orange-500/10 animate-pulse",
-          dotColor: "bg-orange-500"
-        };
+        return { text: "MARTINGALE RECOVERY SWEEP", sub: "Awaiting next confirming target on same volatility index…", dot: "bg-orange-500 pulsing-dot", color: "text-orange-700", bg: "bg-orange-50", border: "border-orange-200" };
       case "STATE_STOPPED":
-        return {
-          text: "SYSTEM HALTED",
-          sub: "Session conditions triggered safety clamp. Reset required.",
-          color: "text-rose-500 border-rose-500/30 bg-rose-500/10 shadow-[0_0_15px_rgba(244,63,94,0.08)]",
-          dotColor: "bg-rose-500"
-        };
+        return { text: "SYSTEM HALTED", sub: "Session safety clamp triggered. Reset required.", dot: "bg-error", color: "text-error", bg: "bg-[#ffdad6]/40", border: "border-error/30" };
     }
   };
 
   const status = getStatusDisplay();
 
+  const quickStakes = [0.35, 1, 5, 10];
+
   return (
-    <div className="animate-fade-in">
-      {/* Engine Controller Card */}
-      <div className="bg-bg-card border border-white/[0.08] rounded-xl p-5 flex flex-col gap-5 shadow-md">
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-[9px] font-bold text-neutral-400 tracking-widest uppercase flex items-center gap-1.5 font-sans">
-              <Layers className="h-3.5 w-3.5" /> Engine Controller
-            </span>
-            {config.showAllModes ? (
-              <div className="flex flex-wrap gap-1 p-1 bg-[#121216] rounded-lg border border-white/[0.06] select-none max-w-full">
+    <div className="flex flex-col gap-4 animate-fade-in">
+      {/* Mode selector */}
+      <section className="flex flex-col gap-2">
+        <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em] px-1">ENGINE MODE</span>
+        {config.showAllModes ? (
+          <div className="grid grid-cols-2 gap-2">
+            {(["Standard", "GradualRecovery", "GradualRecoveryPro", "GradualRecoveryLite", "GradualRecoveryProLite"] as const).map((m) => {
+              const labels: Record<string, string> = {
+                Standard: "STANDARD",
+                GradualRecovery: "SPLIT-M CLASSIC",
+                GradualRecoveryPro: "SPLIT-M PRO",
+                GradualRecoveryLite: "SPLIT-M LITE",
+                GradualRecoveryProLite: "SPLIT-M PRO LITE",
+              };
+              return (
                 <button
+                  key={m}
                   type="button"
                   disabled={isRunning}
-                  onClick={() => handleModeChange("Standard")}
-                  className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                    config.mode === "Standard"
-                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                      : "text-neutral-500 hover:text-white"
-                  } disabled:opacity-50`}
+                  onClick={() => handleModeChange(m)}
+                  className={`py-2 px-3 rounded-full text-[10px] font-bold tracking-[0.1em] uppercase transition-all duration-200 border cursor-pointer disabled:opacity-40 ${
+                    config.mode === m
+                      ? "bg-[#c5a059] text-[#4e3700] border-[#775a19]"
+                      : "bg-[#f5ede4] text-[#4e4639] border-[#d1c5b4] hover:border-[#c5a059]"
+                  }`}
                 >
-                  Standard
+                  {labels[m]}
                 </button>
-                <button
-                  type="button"
-                  disabled={isRunning}
-                  onClick={() => handleModeChange("GradualRecovery")}
-                  className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                    config.mode === "GradualRecovery"
-                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                      : "text-neutral-500 hover:text-white"
-                  } disabled:opacity-50`}
-                  title="Split-Martingale Classic — 50% recovery per trade"
-                >
-                  Split-M Classic
-                </button>
-                <button
-                  type="button"
-                  disabled={isRunning}
-                  onClick={() => handleModeChange("GradualRecoveryPro")}
-                  className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                    config.mode === "GradualRecoveryPro"
-                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                      : "text-neutral-500 hover:text-white"
-                  } disabled:opacity-50`}
-                  title="Split-Martingale Pro — pauses after 2 losses, finds 75%+ signal"
-                >
-                  Split-M Pro
-                </button>
-                <button
-                  type="button"
-                  disabled={isRunning}
-                  onClick={() => handleModeChange("GradualRecoveryLite")}
-                  className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                    config.mode === "GradualRecoveryLite"
-                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                      : "text-neutral-500 hover:text-white"
-                  } disabled:opacity-50`}
-                  title="Split-Martingale Lite — 25% recovery per trade, lower stakes"
-                >
-                  Split-M Lite
-                </button>
-                <button
-                  type="button"
-                  disabled={isRunning}
-                  onClick={() => handleModeChange("GradualRecoveryProLite")}
-                  className={`text-[9px] px-2 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                    config.mode === "GradualRecoveryProLite"
-                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                      : "text-neutral-500 hover:text-white"
-                  } disabled:opacity-50`}
-                  title="Split-Martingale Pro Lite — Pro's signal tightening + Lite's 25% recovery target"
-                >
-                  Split-M Pro Lite
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-1 p-1 bg-[#121216] rounded-lg border border-white/[0.06] select-none max-w-full">
-                <button
-                  type="button"
-                  disabled={isRunning}
-                  onClick={() => handleModeChange("GradualRecoveryProLite")}
-                  className={`text-[9px] px-2.5 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                    config.mode === "GradualRecoveryProLite"
-                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                      : "text-neutral-500 hover:text-white"
-                  } disabled:opacity-50`}
-                  title="Split-Martingale Pro Lite — Pro's signal tightening + Lite's 25% recovery target"
-                >
-                  Split-M Pro Lite
-                </button>
-                <button
-                  type="button"
-                  disabled={isRunning}
-                  onClick={() => handleModeChange("GradualRecoveryPro")}
-                  className={`text-[9px] px-2.5 py-1 rounded-md font-bold uppercase tracking-wider transition-all ${
-                    config.mode === "GradualRecoveryPro"
-                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/20"
-                      : "text-neutral-500 hover:text-white"
-                  } disabled:opacity-50`}
-                  title="Split-Martingale Pro — pauses after 2 losses, finds 75%+ signal"
-                >
-                  Split-M Pro
-                </button>
-              </div>
-            )}
+              );
+            })}
           </div>
-
-          {/* Quick Stake Amount Editor */}
-          <div className="flex items-center justify-between gap-3 p-3 bg-[#121216] rounded-lg border border-white/[0.06] mb-1">
-            <span className="text-[9px] font-bold text-neutral-400 tracking-widest uppercase">Stake Amount</span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-gold-500 text-sm font-bold">$</span>
-              <input
-                type="number"
-                min="0.35"
-                step="0.5"
-                disabled={isRunning}
-                value={config.stakeAmount === 0 ? "" : config.stakeAmount}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (raw === "") {
-                    onConfigChange({ ...config, stakeAmount: 0 });
-                    return;
-                  }
-                  const val = parseFloat(raw);
-                  if (!isNaN(val) && val >= 0) {
-                    onConfigChange({ ...config, stakeAmount: val });
-                  }
-                }}
-                onBlur={(e) => {
-                  if (e.target.value === "" || parseFloat(e.target.value) <= 0) {
-                    onConfigChange({ ...config, stakeAmount: 0.35 });
-                  }
-                }}
-                className="w-20 bg-[#0d0d0f] border border-white/[0.1] rounded-md px-2 py-1 text-sm text-white font-bold text-right focus:outline-none focus:border-gold-500 disabled:opacity-50"
-              />
-            </div>
+        ) : (
+          <div className="bg-[#f5ede4] rounded-full p-1 flex items-center border border-[#d1c5b4]">
+            {(["GradualRecoveryProLite", "GradualRecoveryPro"] as const).map((m) => {
+              const labels: Record<string, string> = { GradualRecoveryProLite: "SPLIT-M PRO LITE", GradualRecoveryPro: "SPLIT-M PRO" };
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  disabled={isRunning}
+                  onClick={() => handleModeChange(m)}
+                  className={`flex-1 py-2 text-center rounded-full text-[10px] font-bold tracking-[0.12em] uppercase transition-all duration-200 cursor-pointer disabled:opacity-40 ${
+                    config.mode === m
+                      ? "bg-[#c5a059] text-[#4e3700] shadow-sm"
+                      : "text-[#4e4639] opacity-70 hover:opacity-100"
+                  }`}
+                >
+                  {labels[m]}
+                </button>
+              );
+            })}
           </div>
+        )}
+      </section>
 
-          {/* Large START/STOP Trigger Button */}
-          {!isRunning ? (
-            <button
-              onClick={startBot}
-              disabled={connectionStatus === "connecting"}
-              className="w-full flex items-center justify-center gap-3 py-4 rounded-xl font-bold text-black bg-gradient-to-r from-gold-600 to-gold-400 hover:from-gold-500 hover:to-gold-300 shadow-md shadow-gold-500/10 active:scale-[0.98] transition-all disabled:opacity-50"
-            >
-              <Play className="h-5 w-5 fill-current" />
-              START TRADING BOT
-            </button>
-          ) : (
-            <button
-              onClick={stopBot}
-              className="w-full flex items-center justify-center gap-3 py-4 rounded-xl font-bold text-white bg-gradient-to-r from-rose-600 to-rose-800 hover:from-rose-500 hover:to-rose-700 shadow-md shadow-rose-600/10 active:scale-[0.98] transition-all"
-            >
-              <Square className="h-5 w-5 fill-current" />
-              STOP AUTOMATION
-            </button>
-          )}
+      {/* Stake input */}
+      <section className="glass-card rounded-2xl p-5 flex flex-col gap-4">
+        <div className="flex justify-between items-center">
+          <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">STAKE AMOUNT</span>
+          <span className="text-[10px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+            TP: ${(config.stakeAmount * 3).toFixed(2)} · SL: 4L
+          </span>
         </div>
-
-        {/* Current status display text bar */}
-        <div className={`p-4 rounded-lg border flex items-start gap-3 transition-all ${status.color}`}>
-          <div className="flex h-5 items-center">
-            <span className={`h-2.5 w-2.5 rounded-full ${status.dotColor}`} />
+        <div className="flex items-center justify-between gap-4">
+          <button
+            type="button"
+            disabled={isRunning}
+            onClick={() => onConfigChange({ ...config, stakeAmount: Math.max(0.35, parseFloat((config.stakeAmount - 0.5).toFixed(2))) })}
+            className="w-12 h-12 rounded-full border border-[#d1c5b4] flex items-center justify-center text-[#775a19] hover:bg-[#f5ede4] active:scale-95 transition-all disabled:opacity-40 cursor-pointer"
+          >
+            <span className="material-symbols-outlined">remove</span>
+          </button>
+          <div className="flex-1 text-center flex items-baseline justify-center gap-1">
+            <span className="text-xl font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>$</span>
+            <input
+              type="number"
+              min="0.35"
+              step="0.5"
+              disabled={isRunning}
+              value={config.stakeAmount === 0 ? "" : config.stakeAmount}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!isNaN(v) && v >= 0) onConfigChange({ ...config, stakeAmount: v });
+                else if (e.target.value === "") onConfigChange({ ...config, stakeAmount: 0 });
+              }}
+              onBlur={(e) => {
+                if (!e.target.value || parseFloat(e.target.value) <= 0)
+                  onConfigChange({ ...config, stakeAmount: 0.35 });
+              }}
+              className="bg-transparent border-none outline-none text-[40px] leading-none font-bold text-[#1e1b16] w-28 text-center disabled:opacity-50"
+              style={{ fontFamily: "IBM Plex Mono, monospace" }}
+            />
           </div>
+          <button
+            type="button"
+            disabled={isRunning}
+            onClick={() => onConfigChange({ ...config, stakeAmount: parseFloat((config.stakeAmount + 0.5).toFixed(2)) })}
+            className="w-12 h-12 rounded-full border border-[#d1c5b4] flex items-center justify-center text-[#775a19] hover:bg-[#f5ede4] active:scale-95 transition-all disabled:opacity-40 cursor-pointer"
+          >
+            <span className="material-symbols-outlined">add</span>
+          </button>
+        </div>
+        {/* Quick stake presets */}
+        <div className="grid grid-cols-4 gap-2">
+          {quickStakes.map((v) => (
+            <button
+              key={v}
+              type="button"
+              disabled={isRunning}
+              onClick={() => onConfigChange({ ...config, stakeAmount: v })}
+              className={`py-2 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer disabled:opacity-40 ${
+                config.stakeAmount === v
+                  ? "bg-[#ffdea5] text-[#4e3700] border-[#c5a059]"
+                  : "bg-[#f5ede4] border-[#d1c5b4] text-[#4e4639] hover:border-[#c5a059]"
+              }`}
+              style={{ fontFamily: "IBM Plex Mono, monospace" }}
+            >
+              {v.toFixed(2)}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Start / Stop */}
+      <section className="flex flex-col gap-3">
+        {!isRunning ? (
+          <button
+            type="button"
+            onClick={startBot}
+            disabled={connectionStatus === "connecting"}
+            className="w-full h-16 rounded-2xl gold-gradient flex items-center justify-center gap-3 shadow-[0_4px_20px_rgba(119,90,25,0.25)] active:scale-[0.98] transition-all duration-150 disabled:opacity-50 cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
+            <span className="text-lg font-black text-white tracking-[0.05em] uppercase">START TRADING BOT</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={stopBot}
+            className="w-full h-16 rounded-2xl bg-gradient-to-r from-error to-[#93000a] flex items-center justify-center gap-3 shadow-[0_4px_20px_rgba(186,26,26,0.2)] active:scale-[0.98] transition-all duration-150 cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>stop</span>
+            <span className="text-lg font-black text-white tracking-[0.05em] uppercase">STOP AUTOMATION</span>
+          </button>
+        )}
+
+        {/* Status bar */}
+        <div className={`flex items-center gap-3 p-3.5 rounded-xl border ${status.bg} ${status.border}`}>
+          <div className={`w-2 h-2 rounded-full shrink-0 ${status.dot}`} />
           <div>
-            <div className="font-bold text-[10px] uppercase tracking-wider leading-5 text-white">{status.text}</div>
-            <div className="text-[11px] text-neutral-400 mt-0.5 leading-relaxed font-medium">{status.sub}</div>
+            <div className={`text-[10px] font-black uppercase tracking-[0.12em] ${status.color}`}>{status.text}</div>
+            <div className="text-[11px] text-[#4e4639] mt-0.5 leading-snug font-medium">{status.sub}</div>
           </div>
         </div>
-      </div>
+      </section>
+
+      {/* Helper tip */}
+      <p className="text-center text-[11px] text-[#4e4639]/60 italic px-4 leading-relaxed">
+        * Bot runs in background. Use the navigation bar below to audit live markets or adjust parameters.
+      </p>
     </div>
   );
 }
-

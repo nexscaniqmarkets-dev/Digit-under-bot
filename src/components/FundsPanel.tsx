@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { Wallet, ArrowDownCircle, ArrowUpCircle, RefreshCw, CheckCircle, XCircle, Loader, Landmark } from "lucide-react";
 
 interface FundsPanelProps {
   balance: string | null;
@@ -13,111 +12,61 @@ interface FundsPanelProps {
   onBalanceRefresh: () => void;
 }
 
-type Tab = "transfer";
 type Status = "idle" | "loading" | "success" | "error";
 
-export default function FundsPanel({
-  balance,
-  isRealAccount,
-  accountEmail,
-  apiToken,
-  telegramId,
-  currentUserEmail,
-  onSwitchToDemo,
-  onSwitchToDeriv,
-  onBalanceRefresh,
-}: FundsPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("transfer");
-
-  // Top up state - kept for type compatibility but tab removed
-  const [topupAmount, setTopupAmount] = useState<number>(10000);
-  const [topupStatus, setTopupStatus] = useState<Status>("idle");
-  const [topupMessage, setTopupMessage] = useState("");
-
-  // Transfer / Bank state
+export default function FundsPanel({ balance, isRealAccount, accountEmail, telegramId, currentUserEmail, onSwitchToDemo, onSwitchToDeriv, onBalanceRefresh }: FundsPanelProps) {
   const [bankBalance, setBankBalance] = useState<number>(0);
   const [transferAmount, setTransferAmount] = useState("");
   const [transferDirection, setTransferDirection] = useState<"toBank" | "fromBank">("toBank");
   const [transferStatus, setTransferStatus] = useState<Status>("idle");
   const [transferMessage, setTransferMessage] = useState("");
   const [transferLoading, setTransferLoading] = useState(false);
-
   const [switchLoading, setSwitchLoading] = useState(false);
   const [switchMessage, setSwitchMessage] = useState("");
 
   const isOnDeriv = !!currentUserEmail;
+  const actualBalance = parseFloat(balance ?? "0");
+  const availableBalance = isOnDeriv ? actualBalance : Math.max(0, actualBalance - bankBalance);
 
-  async function handleAccountSwitch() {
-    setSwitchLoading(true);
-    setSwitchMessage("");
+  useEffect(() => {
+    fetch(`/api/bank/balance?telegramId=${telegramId}`)
+      .then((r) => r.json())
+      .then((d) => setBankBalance(d.balance ?? 0))
+      .catch(() => {});
+  }, [telegramId]);
+
+  async function handleSwitch() {
+    setSwitchLoading(true); setSwitchMessage("");
     try {
       if (isOnDeriv) {
         await onSwitchToDemo();
         setSwitchMessage("Switched to Sandbox Demo mode.");
       } else {
-        const result = await onSwitchToDeriv();
-        if (result.success) {
-          setSwitchMessage("Switched back to Deriv account.");
-        } else {
-          setSwitchMessage("No saved Deriv session. Please login first.");
-        }
+        const res = await onSwitchToDeriv();
+        setSwitchMessage(res.success ? "Switched back to Deriv account." : "No saved Deriv session. Please login first.");
       }
       onBalanceRefresh();
-    } catch {
-      setSwitchMessage("Switch failed. Please try again.");
-    } finally {
-      setSwitchLoading(false);
-      setTimeout(() => setSwitchMessage(""), 3000);
-    }
+    } catch { setSwitchMessage("Switch failed. Please try again."); }
+    finally { setSwitchLoading(false); setTimeout(() => setSwitchMessage(""), 3000); }
   }
 
-  const actualBalance = parseFloat(balance ?? "0");
-  const availableBalance = Math.max(0, actualBalance - bankBalance);
-
-  // Load bank balance from server on mount
-  useEffect(() => {
-    fetch(`/api/bank/balance?telegramId=${telegramId}`)
-      .then(r => r.json())
-      .then(data => setBankBalance(data.balance ?? 0))
-      .catch(() => {});
-  }, [telegramId]);
-
-  // ── Transfer (Demo ↔ Reserved Bank) ────────────────────────────────────────
   async function handleTransfer() {
     const amount = parseFloat(transferAmount);
-    if (isNaN(amount) || amount <= 0) {
-      setTransferStatus("error"); setTransferMessage("Please enter a valid amount."); return;
-    }
-    if (transferDirection === "toBank" && amount > availableBalance) {
-      setTransferStatus("error"); setTransferMessage(`Insufficient balance. Available: $${availableBalance.toFixed(2)}`); return;
-    }
-    if (transferDirection === "fromBank" && amount > bankBalance) {
-      setTransferStatus("error"); setTransferMessage(`Insufficient bank balance. Bank has: $${bankBalance.toFixed(2)}`); return;
-    }
-
+    if (isNaN(amount) || amount <= 0) { setTransferStatus("error"); setTransferMessage("Enter a valid amount."); return; }
+    if (transferDirection === "toBank" && amount > availableBalance) { setTransferStatus("error"); setTransferMessage(`Insufficient balance. Available: $${availableBalance.toFixed(2)}`); return; }
+    if (transferDirection === "fromBank" && amount > bankBalance) { setTransferStatus("error"); setTransferMessage(`Insufficient bank balance. Bank: $${bankBalance.toFixed(2)}`); return; }
     setTransferLoading(true); setTransferStatus("idle"); setTransferMessage("");
-
     try {
       const endpoint = transferDirection === "toBank" ? "/api/bank/deposit" : "/api/bank/withdraw";
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telegramId, amount }),
-      });
+      const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ telegramId, amount }) });
       const data = await res.json();
       if (data.success) {
         setBankBalance(data.bankBalance);
         setTransferStatus("success");
-        setTransferMessage(
-          transferDirection === "toBank"
-            ? `✅ $${amount.toFixed(2)} moved to Reserved Bank. Bank: $${data.bankBalance.toFixed(2)}`
-            : `✅ $${amount.toFixed(2)} returned to demo balance. Bank: $${data.bankBalance.toFixed(2)}`
-        );
+        setTransferMessage(transferDirection === "toBank" ? `✅ $${amount.toFixed(2)} moved to Reserved Bank.` : `✅ $${amount.toFixed(2)} returned to demo balance.`);
         setTransferAmount("");
         onBalanceRefresh();
-      } else {
-        setTransferStatus("error"); setTransferMessage(data.error ?? "Transfer failed.");
-      }
+      } else { setTransferStatus("error"); setTransferMessage(data.error ?? "Transfer failed."); }
     } catch { setTransferStatus("error"); setTransferMessage("Network error. Please try again."); }
     finally { setTransferLoading(false); }
   }
@@ -126,193 +75,176 @@ export default function FundsPanel({
     if (bankBalance <= 0) return;
     setTransferLoading(true);
     try {
-      const res = await fetch("/api/bank/withdraw", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telegramId, amount: bankBalance }),
-      });
+      const res = await fetch("/api/bank/withdraw", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ telegramId, amount: bankBalance }) });
       const data = await res.json();
-      if (data.success) {
-        setBankBalance(0);
-        setTransferStatus("success");
-        setTransferMessage("✅ Bank reset. All funds returned to available balance.");
-        onBalanceRefresh();
-      }
-    } catch { }
+      if (data.success) { setBankBalance(0); setTransferStatus("success"); setTransferMessage("✅ Bank reset. All funds returned to balance."); onBalanceRefresh(); }
+    } catch {}
     finally { setTransferLoading(false); }
   }
 
   return (
-    <div className="px-4 py-4 space-y-4 pb-32">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-2">
-        <div className="w-9 h-9 rounded-full bg-gold-500/10 border border-gold-500/25 flex items-center justify-center">
-          <Wallet className="h-4 w-4 text-gold-500" />
+    <div className="flex flex-col gap-4 pb-4 animate-fade-in">
+      {/* Page title */}
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-[#ffdea5] border border-[#c5a059] flex items-center justify-center">
+          <span className="material-symbols-outlined text-[#775a19] text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>account_balance_wallet</span>
         </div>
         <div>
-          <h2 className="text-base font-bold text-white tracking-wide">FUNDS MANAGER</h2>
-          <p className="text-[10px] text-neutral-400 uppercase tracking-widest">Deriv Account Operations</p>
+          <h2 className="text-[16px] font-bold text-[#1e1b16] uppercase tracking-[0.08em]">FUNDS MANAGER</h2>
+          <p className="text-[10px] text-[#4e4639] uppercase tracking-widest">Deriv Account Operations</p>
         </div>
       </div>
 
-      {/* Balance Cards */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-bg-card border border-green-500/20 rounded-xl p-3">
-          <p className="text-[9px] text-neutral-400 uppercase tracking-widest mb-1">
-            {isOnDeriv ? "Deriv Balance" : "Available Balance"}
-          </p>
-          <p className="text-xl font-bold text-green-400">
-            ${isOnDeriv ? actualBalance.toFixed(2) : availableBalance.toFixed(2)}
-          </p>
-          {!isOnDeriv && (
-            <p className="text-[9px] text-neutral-500 mt-0.5">Total: ${actualBalance.toFixed(2)}</p>
-          )}
-        </div>
-        {!isOnDeriv && (
-          <div className="bg-bg-card border border-gold-500/20 rounded-xl p-3">
-            <p className="text-[9px] text-neutral-400 uppercase tracking-widest mb-1">Reserved Bank</p>
-            <p className="text-xl font-bold text-gold-400">${bankBalance.toFixed(2)}</p>
-            {bankBalance > 0 && (
-              <button onClick={handleResetBank} disabled={transferLoading}
-                className="text-[9px] text-red-400 mt-0.5 underline">
-                Reset bank
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Account Mode Toggle */}
-      <div className="bg-bg-card border border-white/[0.07] rounded-xl p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-white mb-0.5">
-              {isOnDeriv ? "Deriv Account" : "Sandbox Demo"}
-            </p>
-            <p className="text-[10px] text-neutral-400">
-              {isOnDeriv
-                ? `Connected as ${currentUserEmail}`
-                : "No Deriv account connected"}
-            </p>
-          </div>
+      {/* Account mode toggle */}
+      <div className="flex flex-col gap-2">
+        <p className="text-[10px] font-bold text-[#4e4639] uppercase tracking-widest">ACCOUNT MODE</p>
+        <div className="flex p-1 bg-[#efe7de] rounded-xl border border-[#d1c5b4]">
           <button
-            onClick={handleAccountSwitch}
-            disabled={switchLoading}
-            className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none disabled:opacity-50 ${
-              isOnDeriv ? "bg-gold-500" : "bg-white/20"
+            type="button"
+            onClick={() => !isOnDeriv || handleSwitch()}
+            className={`flex-1 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all cursor-pointer ${
+              isOnDeriv ? "bg-white text-[#775a19] shadow-sm border border-[#d1c5b4]" : "text-[#4e4639] opacity-60"
             }`}
           >
-            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
-              isOnDeriv ? "translate-x-8" : "translate-x-1"
-            }`} />
+            Deriv Account
+          </button>
+          <button
+            type="button"
+            onClick={() => isOnDeriv && handleSwitch()}
+            className={`flex-1 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all cursor-pointer ${
+              !isOnDeriv ? "bg-white text-[#775a19] shadow-sm border border-[#d1c5b4]" : "text-[#4e4639] opacity-60"
+            }`}
+          >
+            Sandbox Demo
           </button>
         </div>
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-[9px] text-neutral-500 uppercase tracking-wider">
-            {isOnDeriv ? "Tap to switch to Demo" : "Tap to switch to Deriv"}
-          </span>
-          {switchLoading && <Loader className="h-3 w-3 text-gold-400 animate-spin" />}
-        </div>
+        {isOnDeriv && (
+          <p className="text-[10px] text-[#4e4639] text-center">Connected as <span className="font-bold text-[#775a19]">{currentUserEmail}</span></p>
+        )}
         {switchMessage && (
-          <p className={`text-[10px] mt-2 ${switchMessage.includes("failed") || switchMessage.includes("No saved") ? "text-red-400" : "text-green-400"}`}>
-            {switchMessage}
-          </p>
+          <p className={`text-[11px] text-center font-medium ${switchMessage.includes("failed") ? "text-error" : "text-success"}`}>{switchMessage}</p>
+        )}
+        {switchLoading && <p className="text-[11px] text-center text-[#775a19]">Switching…</p>}
+      </div>
+
+      {/* Balance cards */}
+      <div className="flex flex-col gap-3">
+        <div className="glass-card p-5 rounded-xl relative overflow-hidden">
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <p className="text-[10px] font-bold text-[#4e4639] uppercase tracking-widest mb-1">{isOnDeriv ? "DERIV BALANCE" : "AVAILABLE BALANCE"}</p>
+              <h2 className="text-2xl font-bold text-[#1e1b16]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                ${availableBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              </h2>
+            </div>
+            <span className="material-symbols-outlined text-[#c5a059] opacity-40 text-4xl">payments</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`text-[10px] font-bold uppercase tracking-widest ${isRealAccount ? "text-success" : "text-[#7f7667]"}`}>
+              {isRealAccount ? "REAL ACCOUNT" : "DEMO ACCOUNT"}
+            </span>
+          </div>
+          <div className="absolute top-0 right-0 w-32 h-32 bg-[#c5a059]/5 rounded-full -mr-16 -mt-16 blur-3xl pointer-events-none" />
+        </div>
+
+        {!isOnDeriv && (
+          <div className="glass-card p-5 rounded-xl relative overflow-hidden border-[#c5a059]/20">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <p className="text-[10px] font-bold text-[#4e4639] uppercase tracking-widest mb-1">RESERVED BANK</p>
+                <h2 className="text-2xl font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                  ${bankBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                </h2>
+              </div>
+              <span className="material-symbols-outlined text-[#c5a059] opacity-40 text-4xl">account_balance</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-bold text-[#775a19] uppercase tracking-widest">Secured</span>
+                <span className="material-symbols-outlined text-[#775a19] text-xs" style={{ fontVariationSettings: "'FILL' 1" }}>verified_user</span>
+              </div>
+              {bankBalance > 0 && (
+                <button type="button" onClick={handleResetBank} disabled={transferLoading} className="text-[9px] text-error underline font-bold cursor-pointer disabled:opacity-40">
+                  Reset bank
+                </button>
+              )}
+            </div>
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[#c5a059]/5 rounded-full -mr-16 -mt-16 blur-3xl pointer-events-none" />
+          </div>
         )}
       </div>
 
-      {/* Tab Switcher - Reserved Bank only (sandbox mode) */}
+      {/* Internal Transfer (sandbox only) */}
       {!isOnDeriv && (
-        <div className="bg-bg-card border border-white/[0.07] rounded-xl p-1">
-          <div className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider text-gold-400">
-            <Landmark className="h-3 w-3" /> Reserved Bank
+        <div className="glass-card p-5 rounded-xl bg-[#fbf2e9]">
+          <h3 className="text-[13px] font-bold text-[#1e1b16] mb-4 uppercase tracking-[0.06em]">INTERNAL TRANSFER</h3>
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="text-[10px] font-bold text-[#4e4639] block mb-2 uppercase tracking-widest">AMOUNT TO MOVE</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  value={transferAmount}
+                  onChange={(e) => setTransferAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-white border border-[#d1c5b4] rounded-lg h-12 px-4 text-[14px] text-[#1e1b16] focus:outline-none focus:border-[#775a19] transition-colors"
+                  style={{ fontFamily: "IBM Plex Mono, monospace" }}
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[11px] text-[#4e4639] font-bold" style={{ fontFamily: "IBM Plex Mono, monospace" }}>USD</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => { setTransferDirection("toBank"); }}
+                className={`flex-1 h-12 rounded-lg text-[10px] font-bold uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer border ${
+                  transferDirection === "toBank" ? "bg-[#545f72] text-white border-[#545f72]" : "bg-[#f5ede4] text-[#4e4639] border-[#d1c5b4]"
+                }`}
+              >
+                <span className="material-symbols-outlined text-sm">arrow_downward</span>
+                To Bank
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTransferDirection("fromBank"); }}
+                className={`flex-1 h-12 rounded-lg text-[10px] font-bold uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer border ${
+                  transferDirection === "fromBank" ? "bg-[#775a19] text-white border-[#775a19]" : "bg-[#f5ede4] text-[#4e4639] border-[#d1c5b4]"
+                }`}
+              >
+                <span className="material-symbols-outlined text-sm">arrow_upward</span>
+                To Trading
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleTransfer}
+              disabled={transferLoading}
+              className="w-full h-12 gold-gradient text-white rounded-lg text-[11px] font-bold uppercase tracking-wider active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {transferLoading ? "Processing…" : "CONFIRM TRANSFER"}
+            </button>
+            {transferMessage && (
+              <p className={`text-[11px] font-medium text-center ${transferStatus === "success" ? "text-success" : "text-error"}`}>{transferMessage}</p>
+            )}
           </div>
         </div>
       )}
 
-      {isOnDeriv && (
-        <div className="bg-bg-card border border-white/[0.07] rounded-xl p-4">
-          <p className="text-[11px] text-neutral-400 leading-relaxed">
-            The Reserved Bank is a sandbox-only feature for protecting virtual capital during testing. Switch to Sandbox Demo to use it.
-          </p>
-        </div>
-      )}
-
-      {/* ── RESERVED BANK TAB ── */}
-      {activeTab === "transfer" && !isOnDeriv && (
-        <div className="bg-bg-card border border-white/[0.07] rounded-xl p-4 space-y-4">
-          <div>
-            <p className="text-xs text-neutral-300 mb-1 font-semibold">Reserved Bank</p>
-            <p className="text-[11px] text-neutral-400 leading-relaxed">
-              Protect your capital by storing funds in the Reserved Bank. Keep only what you need for testing — e.g. transfer $9,950 to bank and trade with just $50.
-            </p>
-          </div>
-
-          {/* Direction Toggle */}
-          <div className="flex bg-white/5 border border-white/10 rounded-xl p-1 gap-1">
-            <button onClick={() => { setTransferDirection("toBank"); setTransferStatus("idle"); setTransferMessage(""); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${transferDirection === "toBank" ? "bg-gold-500/15 text-gold-400 border border-gold-500/25" : "text-neutral-400"}`}>
-              <ArrowDownCircle className="h-3.5 w-3.5" /> Demo → Bank
-            </button>
-            <button onClick={() => { setTransferDirection("fromBank"); setTransferStatus("idle"); setTransferMessage(""); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${transferDirection === "fromBank" ? "bg-gold-500/15 text-gold-400 border border-gold-500/25" : "text-neutral-400"}`}>
-              <ArrowUpCircle className="h-3.5 w-3.5" /> Bank → Demo
-            </button>
-          </div>
-
-          {/* Info row */}
-          <div className="flex gap-3">
-            <div className="flex-1 bg-white/5 rounded-lg p-3 text-center">
-              <p className="text-[9px] text-neutral-400 mb-1">
-                {transferDirection === "toBank" ? "Available to Transfer" : "In Bank"}
-              </p>
-              <p className="text-sm font-bold text-white">
-                ${transferDirection === "toBank" ? availableBalance.toFixed(2) : bankBalance.toFixed(2)}
-              </p>
-            </div>
-            <div className="flex-1 bg-gold-500/5 border border-gold-500/15 rounded-lg p-3 text-center">
-              <p className="text-[9px] text-neutral-400 mb-1">After Transfer</p>
-              <p className="text-sm font-bold text-gold-400">
-                {transferDirection === "toBank"
-                  ? `$${(bankBalance + (parseFloat(transferAmount) || 0)).toFixed(2)}`
-                  : `$${Math.max(0, bankBalance - (parseFloat(transferAmount) || 0)).toFixed(2)}`}
-              </p>
-            </div>
-          </div>
-
-          {/* Amount input */}
-          <div>
-            <p className="text-[10px] text-neutral-400 uppercase tracking-wider mb-2">Amount</p>
-            <input type="number" placeholder="e.g. 9950" value={transferAmount}
-              onChange={(e) => setTransferAmount(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-gold-500/40" />
-            <div className="flex gap-2 mt-2">
-              {[25, 50, 75, 100].map((pct) => (
-                <button key={pct} onClick={() => {
-                  const base = transferDirection === "toBank" ? availableBalance : bankBalance;
-                  setTransferAmount((base * pct / 100).toFixed(2));
-                }} className="flex-1 py-1.5 rounded-lg text-[10px] font-bold bg-white/5 border border-white/10 text-neutral-400 hover:text-white transition-colors">
-                  {pct}%
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Status */}
-          {transferMessage && (
-            <div className={`p-3 rounded-lg flex items-start gap-2 ${transferStatus === "success" ? "bg-green-500/10 border border-green-500/25" : "bg-red-500/10 border border-red-500/25"}`}>
-              {transferStatus === "success" ? <CheckCircle className="h-4 w-4 text-green-400 shrink-0 mt-0.5" /> : <XCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />}
-              <p className={`text-[11px] ${transferStatus === "success" ? "text-green-300" : "text-red-300"}`}>{transferMessage}</p>
-            </div>
-          )}
-
-          <button onClick={handleTransfer} disabled={transferLoading || !transferAmount}
-            className="w-full py-3 rounded-xl bg-gold-500 text-black font-bold text-sm uppercase tracking-wider disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95">
-            {transferLoading
-              ? <><Loader className="h-4 w-4 animate-spin" /> Processing...</>
-              : transferDirection === "toBank"
-                ? <><ArrowDownCircle className="h-4 w-4" /> Transfer to Reserved Bank</>
-                : <><ArrowUpCircle className="h-4 w-4" /> Return to Demo Balance</>}
+      {/* Danger zone */}
+      {!isOnDeriv && (
+        <div className="pt-4 border-t border-[#d1c5b4]">
+          <button
+            type="button"
+            disabled={transferLoading}
+            onClick={handleResetBank}
+            className="w-full h-11 border border-error/40 text-error rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#ffdad6]/30 active:scale-95 transition-all cursor-pointer disabled:opacity-40"
+          >
+            <span className="material-symbols-outlined text-sm">refresh</span>
+            Reset Demo Balance
           </button>
+          <p className="text-center text-[10px] text-[#4e4639]/60 mt-2 uppercase tracking-widest">
+            Resets sandbox balance to <span style={{ fontFamily: "IBM Plex Mono, monospace" }}>$10,000.00</span>
+          </p>
         </div>
       )}
     </div>

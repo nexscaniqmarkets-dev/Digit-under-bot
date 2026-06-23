@@ -29,7 +29,7 @@ export default function App() {
     balance, accountEmail, isRealAccount,
     sessionProfit, dailyTradesCount, consecutiveLosses, multiplier,
     connectionStatus, reconnectCountdown,
-    symbolStates, toasts, toastHistory, removeToast,
+    symbolStates, toastHistory,
     tradeLogs, clearTradeLogs, sessionStats, showSummary, closeSummary,
     startBot, stopBot, resetDemoBalance,
     currentUserEmail, login, logout, switchToDemo, switchToDeriv,
@@ -155,26 +155,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#fff8f3] text-[#1e1b16] font-sans antialiased selection:bg-[#ffdea5] selection:text-[#4e3700]">
-
-      {/* ── TOASTS ── */}
-      <div className="fixed bottom-24 right-3 z-[60] flex flex-col gap-2 max-w-[280px]">
-        {toasts.map((t) => {
-          const styles: Record<string, string> = {
-            green: "bg-[#f0fdf4] border-success/30 text-success",
-            red: "bg-[#ffdad6]/80 border-error/30 text-error",
-            blue: "bg-[#ffdea5]/60 border-[#c5a059]/40 text-[#775a19]",
-            orange: "bg-orange-50 border-orange-200 text-orange-700",
-          };
-          return (
-            <div key={t.id} className={`flex items-start gap-2 px-3 py-2.5 rounded-xl border shadow-md backdrop-blur-sm text-[11px] font-medium animate-fade-in ${styles[t.type] || styles.blue}`}>
-              <p className="flex-1 leading-snug">{t.message}</p>
-              <button type="button" onClick={() => removeToast(t.id)} className="shrink-0 opacity-60 hover:opacity-100 mt-0.5 cursor-pointer">
-                <span className="material-symbols-outlined text-[14px]">close</span>
-              </button>
-            </div>
-          );
-        })}
-      </div>
 
       {/* ── HEADER ── */}
       <Header

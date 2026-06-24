@@ -101,7 +101,7 @@ export default function FundsPanel({ balance, isRealAccount, accountEmail, teleg
         <div className="flex p-1 bg-[#efe7de] rounded-xl border border-[#d1c5b4]">
           <button
             type="button"
-            onClick={() => !isOnDeriv || handleSwitch()}
+            onClick={() => !isOnDeriv && handleSwitch()}
             className={`flex-1 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all cursor-pointer ${
               isOnDeriv ? "bg-white text-[#775a19] shadow-sm border border-[#d1c5b4]" : "text-[#4e4639] opacity-60"
             }`}

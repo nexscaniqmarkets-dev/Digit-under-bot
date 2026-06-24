@@ -230,7 +230,7 @@ async function startServer() {
     res.json(bot.getFullState());
   });
 
-  app.post("/api/bot/reset-demo-balance", (req, res) => {
+  app.post("/api/bot/reset-demo-balance", async (req, res) => {
     const bot = getBot(req);
     bot.resetDemoBalance();
     res.json(bot.getFullState());

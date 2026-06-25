@@ -86,7 +86,7 @@ export function useBot() {
         setConfig(data.config);
         setBotState(data.botState);
         setActiveSymbol(data.activeSymbol);
-        setBalance(data.balance);
+        if (data.balance !== undefined) setBalance(data.balance);
         setAccountEmail(data.accountEmail);
         setIsRealAccount(data.isRealAccount);
         setCurrentUserEmail(data.currentUserEmail);
@@ -195,7 +195,7 @@ export function useBot() {
       const res = await postJSON("/api/bot/reset-demo-balance", { telegramId: getTelegramId() });
       if (res.ok) {
         const data = await res.json();
-        setBalance(data.balance);
+        if (data.balance !== undefined) setBalance(data.balance);
         setConfig(data.config);
       }
     } catch (e) { console.error(e); }

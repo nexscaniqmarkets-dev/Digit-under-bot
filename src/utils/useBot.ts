@@ -192,7 +192,7 @@ export function useBot() {
 
   const resetDemoBalance = async () => {
     try {
-      const res = await postJSON("/api/bot/reset-demo-balance");
+      const res = await postJSON("/api/bot/reset-demo-balance", { telegramId: getTelegramId() });
       if (res.ok) {
         const data = await res.json();
         setBalance(data.balance);

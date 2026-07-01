@@ -1216,23 +1216,30 @@ class ServerBot {
 
     // If we're locked on this symbol and a pattern signal fired, execute
     if (this.botState === "STATE_CONFIRMING" && this.activeSymbol === symbol) {
+      // ── Continuous credibility monitor ─────────────────────────────────────
+      // Every tick, re-check that the locked pair still qualifies. If dominance
+      // has fallen below the threshold, drop it immediately and re-scan — don't
+      // wait for a signal to fire on a pair that's no longer valid.
+      const dominanceThreshold = this.config.evenOddDominance ?? 55;
+      const currentDominance = Math.max(state.evenPct, state.oddPct);
+      if (currentDominance < dominanceThreshold) {
+        this.showToast(
+          `${state.displayName} dominance fell to ${currentDominance.toFixed(1)}% (need ≥${dominanceThreshold}%). Dropping pair — re-scanning.`,
+          "grey"
+        );
+        this.symbolStates[symbol].evenOddStreakType = null;
+        this.symbolStates[symbol].evenOddStreakCount = 0;
+        this.pendingEvenOddSignal = null;
+        this.activeSymbol = null;
+        this.botState = "STATE_SCANNING";
+        this.selectEvenOddSymbol();
+        return;
+      }
+      // ───────────────────────────────────────────────────────────────────────
+
       if (this.pendingEvenOddSignal && this.pendingEvenOddSignal.symbol === symbol) {
         const sig = this.pendingEvenOddSignal;
         this.pendingEvenOddSignal = null;
-
-        // Re-validate dominance before firing
-        const dominanceThreshold = this.config.evenOddDominance ?? 55;
-        const dominant = Math.max(state.evenPct, state.oddPct);
-        if (dominant < dominanceThreshold) {
-          this.showToast(
-            `Signal ignored: dominance dropped to ${dominant}% (need ≥${dominanceThreshold}%). Re-scanning.`,
-            "grey"
-          );
-          this.activeSymbol = null;
-          this.botState = "STATE_SCANNING";
-          this.selectEvenOddSymbol();
-          return;
-        }
 
         this.botState = "STATE_TRADING";
         this.executeEvenOddTrade(sig.symbol, sig.direction, state);

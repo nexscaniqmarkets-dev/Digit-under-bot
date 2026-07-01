@@ -60,7 +60,9 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
               {isEvenOdd ? "E/O Dom%" : "Under %"}
             </th>
             <th className="px-3 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.12em] text-center">Signal</th>
-            <th className="px-3 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.12em] text-right">Digit</th>
+            <th className="px-3 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.12em] text-right">
+              {isEvenOdd ? "Parity" : "Digit"}
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[#d1c5b4]/20">
@@ -118,17 +120,46 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
                   })()}
                 </td>
                 <td className="px-3 py-2.5 text-center">
-                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${getStrengthStyle(sym.signalStrength)}`}>
-                    {isWarmed ? sym.signalStrength : "LOADING"}
-                  </span>
+                  {(() => {
+                    if (!isWarmed) return (
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide text-[#7f7667] bg-[#f0e8df] border border-[#d1c5b4]">
+                        LOADING
+                      </span>
+                    );
+                    if (isEvenOdd) {
+                      const dom = Math.max((sym as any).evenPct ?? 0, (sym as any).oddPct ?? 0);
+                      const eoStrength = dom >= 65 ? "STRONG" : dom >= 60 ? "MODERATE" : dom >= 55 ? "WEAK" : "SCANNING...";
+                      return (
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${getStrengthStyle(eoStrength as any)}`}>
+                          {eoStrength}
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${getStrengthStyle(sym.signalStrength)}`}>
+                        {sym.signalStrength}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="px-3 py-2.5 text-right">
-                  <span
-                    className={`text-[15px] font-bold ${isActive ? "text-[#775a19]" : "text-[#4e4639]"}`}
-                    style={{ fontFamily: "IBM Plex Mono, monospace" }}
-                  >
-                    {sym.lastDigit !== null ? sym.lastDigit : "—"}
-                  </span>
+                  {isEvenOdd ? (
+                    sym.lastDigit !== null ? (
+                      <span
+                        className={`text-[13px] font-black ${sym.lastDigit % 2 === 0 ? "text-[#775a19]" : "text-[#7f7667]"}`}
+                        style={{ fontFamily: "IBM Plex Mono, monospace" }}
+                      >
+                        {sym.lastDigit % 2 === 0 ? "E" : "O"}
+                      </span>
+                    ) : <span className="text-[13px] text-[#7f7667]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>—</span>
+                  ) : (
+                    <span
+                      className={`text-[15px] font-bold ${isActive ? "text-[#775a19]" : "text-[#4e4639]"}`}
+                      style={{ fontFamily: "IBM Plex Mono, monospace" }}
+                    >
+                      {sym.lastDigit !== null ? sym.lastDigit : "—"}
+                    </span>
+                  )}
                 </td>
               </tr>
             );

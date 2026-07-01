@@ -28,7 +28,7 @@ export default function App() {
     config, saveConfig, botState, activeSymbol,
     balance, accountEmail, isRealAccount,
     sessionProfit, dailyTradesCount, consecutiveLosses, multiplier,
-    connectionStatus, reconnectCountdown,
+    connectionStatus, reconnectCountdown, evenOddCooldownSkipsRemaining,
     symbolStates, toastHistory,
     tradeLogs, clearTradeLogs, sessionStats, showSummary, closeSummary,
     startBot, stopBot, resetDemoBalance,
@@ -221,6 +221,7 @@ export default function App() {
                   startBot={startBot} stopBot={stopBot} activeSymbol={activeSymbol}
                   inspectSymbol={inspectSymbol} setInspectSymbol={setInspectSymbol}
                   connectionStatus={connectionStatus} reconnectCountdown={reconnectCountdown}
+                  evenOddCooldownSkipsRemaining={evenOddCooldownSkipsRemaining}
                 />
                 <StatsBar
                   config={config} botState={botState} activeSymbol={activeSymbol}

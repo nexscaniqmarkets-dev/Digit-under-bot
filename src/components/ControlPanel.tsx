@@ -11,6 +11,7 @@ interface ControlPanelProps {
   setInspectSymbol?: (symbol: string) => void;
   connectionStatus: "disconnected" | "connecting" | "connected";
   reconnectCountdown: number | null;
+  evenOddCooldownSkipsRemaining?: number;
 }
 
 export default function ControlPanel({
@@ -22,6 +23,7 @@ export default function ControlPanel({
   activeSymbol,
   connectionStatus,
   reconnectCountdown,
+  evenOddCooldownSkipsRemaining = 0,
 }: ControlPanelProps) {
   const isRunning = botState !== "STATE_IDLE" && botState !== "STATE_STOPPED";
 
@@ -44,7 +46,9 @@ export default function ControlPanel({
       case "STATE_WARMING_UP":
         return { text: "WARMING UP CHANNELS", sub: "Populating tick buffers for 13 markets (min. 120 each)…", dot: "bg-[#775a19] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#fff8e8]", border: "border-[#d1c5b4]" };
       case "STATE_SCANNING":
-        return { text: "SCANNING ACTIVE CHANNELS", sub: "Auto-evaluating 13 synthetic markets simultaneously…", dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/30", border: "border-[#c5a059]/50" };
+        return evenOddCooldownSkipsRemaining > 0 && (config.strategy ?? "under") === "evenodd"
+          ? { text: "COOLDOWN ACTIVE", sub: `Observing next ${evenOddCooldownSkipsRemaining} qualifying signal${evenOddCooldownSkipsRemaining > 1 ? "s" : ""} before resuming trades…`, dot: "bg-[#7f7667] pulsing-dot", color: "text-[#4e4639]", bg: "bg-[#e9e1d8]/50", border: "border-[#d1c5b4]" }
+          : { text: "SCANNING ACTIVE CHANNELS", sub: "Auto-evaluating 13 synthetic markets simultaneously…", dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/30", border: "border-[#c5a059]/50" };
       case "STATE_CONFIRMING":
         return (config.strategy ?? "under") === "evenodd"
           ? { text: "PATTERN WATCHING", sub: `Waiting for 3-digit reversal signal on ${SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol}…`, dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/40", border: "border-[#c5a059]" }

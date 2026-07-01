@@ -175,6 +175,8 @@ class ServerBot {
   private awaitingSettlement: boolean = false;
   private connectionStatus: "disconnected" | "connecting" | "connected" = "disconnected";
   private reconnectCountdown: number | null = null;
+  // Even/Odd cooldown: after 2 consecutive losses, skip the next 2 qualifying signals
+  private evenOddCooldownSkipsRemaining: number = 0;
 
   private symbolStates: Record<string, SymbolState> = {};
   private tradeLogs: TradeLog[] = [];
@@ -539,6 +541,7 @@ class ServerBot {
     this.accumulatedLoss = 0;
     this.multiplier = 1;
     this.inRecovery = false;
+    this.evenOddCooldownSkipsRemaining = 0;
     this.sequenceDone = 0;
     this.awaitingSettlement = false;
     this.currentStreak = 0;
@@ -601,6 +604,7 @@ class ServerBot {
     this.accumulatedLoss = 0;
     this.multiplier = 1;
     this.inRecovery = false;
+    this.evenOddCooldownSkipsRemaining = 0;
     this.sequenceDone = 0;
     this.awaitingSettlement = false;
     this.currentStreak = 0;
@@ -666,6 +670,7 @@ class ServerBot {
       consecutiveLosses: this.consecutiveLosses,
       multiplier: this.multiplier,
       inRecovery: this.inRecovery,
+      evenOddCooldownSkipsRemaining: this.evenOddCooldownSkipsRemaining,
       sequenceDone: this.sequenceDone,
       awaitingSettlement: this.awaitingSettlement,
       connectionStatus: this.connectionStatus,
@@ -733,6 +738,7 @@ class ServerBot {
     this.accumulatedLoss = 0;
     this.multiplier = 1;
     this.inRecovery = false;
+    this.evenOddCooldownSkipsRemaining = 0;
     this.sequenceDone = 0;
     this.awaitingSettlement = false;
     this.currentStreak = 0;
@@ -1242,6 +1248,23 @@ class ServerBot {
         const sig = this.pendingEvenOddSignal;
         this.pendingEvenOddSignal = null;
 
+        // Cooldown: skip this signal if we still have skips remaining
+        if (this.evenOddCooldownSkipsRemaining > 0) {
+          this.evenOddCooldownSkipsRemaining -= 1;
+          const skipsLeft = this.evenOddCooldownSkipsRemaining;
+          this.showToast(
+            `Cooldown active — skipping ${sig.direction} signal on ${state.displayName}. ${skipsLeft > 0 ? `${skipsLeft} skip${skipsLeft > 1 ? "s" : ""} remaining.` : "Cooldown lifted — resuming next signal."}`,
+            "grey"
+          );
+          // Reset streak and re-scan so we catch the next fresh pattern
+          this.symbolStates[symbol].evenOddStreakType = null;
+          this.symbolStates[symbol].evenOddStreakCount = 0;
+          this.activeSymbol = null;
+          this.botState = "STATE_SCANNING";
+          this.selectEvenOddSymbol();
+          return;
+        }
+
         this.botState = "STATE_TRADING";
         this.executeEvenOddTrade(sig.symbol, sig.direction, state);
       }
@@ -1474,6 +1497,7 @@ class ServerBot {
         this.consecutiveLosses = 0;
         this.multiplier = 1;
         this.inRecovery = false;
+        this.evenOddCooldownSkipsRemaining = 0;
         this.showToast(`WIN! +$${profit.toFixed(2)} [EvenOdd Pro]. Stake reset to base.`, "green");
       } else {
         this.consecutiveLosses += 1;
@@ -1481,16 +1505,27 @@ class ServerBot {
         this.multiplier = Math.pow(m, this.consecutiveLosses);
         this.inRecovery = true;
         const nextStake = Number((this.config.stakeAmount * this.multiplier).toFixed(2));
-        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. Next stake: $${nextStake.toFixed(2)} (×${this.multiplier.toFixed(2)}).`, "red");
+        if (this.consecutiveLosses === 2) {
+          this.evenOddCooldownSkipsRemaining = 2;
+          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. 2 consecutive losses — cooldown activated. Next 2 signals skipped. Resumes at $${nextStake.toFixed(2)}.`, "red");
+        } else {
+          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. Next stake: $${nextStake.toFixed(2)} (×${this.multiplier.toFixed(2)}).`, "red");
+        }
       }
     } else {
-      // Standard: fixed stake, track consecutive losses for the 4-loss stop loss
+      // Standard: fixed stake, track consecutive losses for cooldown + stop loss
       if (outcome === "WIN") {
         this.consecutiveLosses = 0;
+        this.evenOddCooldownSkipsRemaining = 0;
         this.showToast(`WIN! +$${profit.toFixed(2)} [EvenOdd Standard].`, "green");
       } else {
         this.consecutiveLosses += 1;
-        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. Consecutive losses: ${this.consecutiveLosses}/${this.config.stopLoss}.`, "red");
+        if (this.consecutiveLosses === 2) {
+          this.evenOddCooldownSkipsRemaining = 2;
+          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. 2 consecutive losses — cooldown activated. Next 2 signals will be skipped.`, "red");
+        } else {
+          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. Consecutive losses: ${this.consecutiveLosses}/${this.config.stopLoss}.`, "red");
+        }
       }
     }
 

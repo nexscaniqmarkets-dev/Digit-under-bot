@@ -43,6 +43,7 @@ export function useBot() {
   const [awaitingSettlement, setAwaitingSettlement] = useState<boolean>(false);
   const [connectionStatus, setConnectionStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
   const [reconnectCountdown, setReconnectCountdown] = useState<number | null>(null);
+  const [evenOddCooldownSkipsRemaining, setEvenOddCooldownSkipsRemaining] = useState<number>(0);
 
   const [symbolStates, setSymbolStates] = useState<Record<string, SymbolState>>({});
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -99,6 +100,7 @@ export function useBot() {
         setAwaitingSettlement(data.awaitingSettlement);
         setConnectionStatus(data.connectionStatus);
         setReconnectCountdown(data.reconnectCountdown);
+        if (data.evenOddCooldownSkipsRemaining !== undefined) setEvenOddCooldownSkipsRemaining(data.evenOddCooldownSkipsRemaining);
         setSymbolStates(data.symbolStates || {});
         setTradeLogs(data.tradeLogs || []);
         setSessionStats(data.sessionStats);
@@ -313,6 +315,7 @@ export function useBot() {
     awaitingSettlement,
     connectionStatus,
     reconnectCountdown,
+    evenOddCooldownSkipsRemaining,
     symbolStates,
     toasts,
     toastHistory,

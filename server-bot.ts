@@ -1482,11 +1482,13 @@ class ServerBot {
         this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. Next stake: $${nextStake.toFixed(2)} (×${this.multiplier}).`, "red");
       }
     } else {
-      // Standard: fixed stake, no progression
+      // Standard: fixed stake, track consecutive losses for the 4-loss stop loss
       if (outcome === "WIN") {
+        this.consecutiveLosses = 0;
         this.showToast(`WIN! +$${profit.toFixed(2)} [EvenOdd Standard].`, "green");
       } else {
-        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard].`, "red");
+        this.consecutiveLosses += 1;
+        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. Consecutive losses: ${this.consecutiveLosses}/${this.config.stopLoss}.`, "red");
       }
     }
 

@@ -31,6 +31,10 @@ export default function ControlPanel({
     onConfigChange({ ...config, mode });
   };
 
+  const handleEvenOddModeChange = (mode: "Standard" | "Pro") => {
+    onConfigChange({ ...config, evenOddMode: mode });
+  };
+
   const getStatusDisplay = () => {
     switch (botState) {
       case "STATE_IDLE":
@@ -42,9 +46,13 @@ export default function ControlPanel({
       case "STATE_SCANNING":
         return { text: "SCANNING ACTIVE CHANNELS", sub: "Auto-evaluating 13 synthetic markets simultaneously…", dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/30", border: "border-[#c5a059]/50" };
       case "STATE_CONFIRMING":
-        return { text: "SIGNAL DETECTED", sub: `Matching 2-tick Under ${config.referenceDigit} qualifiers on ${SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol}…`, dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/40", border: "border-[#c5a059]" };
+        return (config.strategy ?? "under") === "evenodd"
+          ? { text: "PATTERN WATCHING", sub: `Waiting for 3-digit reversal signal on ${SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol}…`, dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/40", border: "border-[#c5a059]" }
+          : { text: "SIGNAL DETECTED", sub: `Matching 2-tick Under ${config.referenceDigit} qualifiers on ${SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol}…`, dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/40", border: "border-[#c5a059]" };
       case "STATE_TRADING":
-        return { text: "CONTRACT SEQUENCE PLACED", sub: "Executing rapid automated Digit Under settlements on broker…", dot: "bg-success", color: "text-success", bg: "bg-success-light/50", border: "border-success/30" };
+        return (config.strategy ?? "under") === "evenodd"
+          ? { text: "EVEN/ODD CONTRACT PLACED", sub: "Awaiting digit parity settlement on broker…", dot: "bg-success", color: "text-success", bg: "bg-success-light/50", border: "border-success/30" }
+          : { text: "CONTRACT SEQUENCE PLACED", sub: "Executing rapid automated Digit Under settlements on broker…", dot: "bg-success", color: "text-success", bg: "bg-success-light/50", border: "border-success/30" };
       case "STATE_RECOVERY":
         return { text: "MARTINGALE RECOVERY SWEEP", sub: "Awaiting next confirming target on same volatility index…", dot: "bg-orange-500 pulsing-dot", color: "text-orange-700", bg: "bg-orange-50", border: "border-orange-200" };
       case "STATE_STOPPED":
@@ -61,7 +69,27 @@ export default function ControlPanel({
       {/* Mode selector */}
       <section className="flex flex-col gap-2">
         <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em] px-1">ENGINE MODE</span>
-        {config.showAllModes ? (
+
+        {/* Even/Odd strategy modes */}
+        {(config.strategy ?? "under") === "evenodd" ? (
+          <div className="bg-[#f5ede4] rounded-full p-1 flex items-center border border-[#d1c5b4]">
+            {(["Standard", "Pro"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                disabled={isRunning}
+                onClick={() => handleEvenOddModeChange(m)}
+                className={`flex-1 py-2 text-center rounded-full text-[10px] font-bold tracking-[0.12em] uppercase transition-all duration-200 cursor-pointer disabled:opacity-40 ${
+                  (config.evenOddMode ?? "Standard") === m
+                    ? "bg-[#c5a059] text-[#4e3700] shadow-sm"
+                    : "text-[#4e4639] opacity-70 hover:opacity-100"
+                }`}
+              >
+                {m === "Standard" ? "STANDARD" : "PRO (2× MARTINGALE)"}
+              </button>
+            ))}
+          </div>
+        ) : config.showAllModes ? (
           <div className="grid grid-cols-2 gap-2">
             {(["Standard", "GradualRecovery", "GradualRecoveryPro", "GradualRecoveryLite", "GradualRecoveryProLite"] as const).map((m) => {
               const labels: Record<string, string> = {

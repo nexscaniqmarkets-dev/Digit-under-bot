@@ -14,12 +14,16 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
   const symbolList = SYMBOLS.map(({ symbol, name }) => {
     const s = symbolStates[symbol];
     if (s) return s;
-    return { symbol, displayName: name, buffer: [], underPct: 0, overPct: 0, signalStrength: "SCANNING..." as const, confirmationCounter: 0, digitFreq: {}, digitPct: {}, lastDigit: null, qualified: false, tickCount: 0, lastTickTime: 0, isClosed: false };
+    return { symbol, displayName: name, buffer: [], underPct: 0, overPct: 0, evenPct: 0, oddPct: 0, signalStrength: "SCANNING..." as const, confirmationCounter: 0, digitFreq: {}, digitPct: {}, lastDigit: null, qualified: false, tickCount: 0, lastTickTime: 0, isClosed: false, evenOddStreakType: null, evenOddStreakCount: 0 };
   });
+
+  const isEvenOdd = (config.strategy ?? "under") === "evenodd";
 
   const sorted = [...symbolList].sort((a, b) => {
     const aW = a.buffer.length >= capacity, bW = b.buffer.length >= capacity;
-    if (aW && bW) return b.underPct - a.underPct;
+    const aScore = isEvenOdd ? Math.max((a as any).evenPct ?? 0, (a as any).oddPct ?? 0) : a.underPct;
+    const bScore = isEvenOdd ? Math.max((b as any).evenPct ?? 0, (b as any).oddPct ?? 0) : b.underPct;
+    if (aW && bW) return bScore - aScore;
     if (aW && !bW) return -1;
     if (!aW && bW) return 1;
     return b.buffer.length - a.buffer.length;
@@ -52,7 +56,9 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
         <thead>
           <tr className="border-b border-[#d1c5b4]/50 bg-[#fbf2e9]">
             <th className="px-3 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">Asset</th>
-            <th className="px-3 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.12em] text-right">Under %</th>
+            <th className="px-3 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.12em] text-right">
+              {isEvenOdd ? "E/O Dom%" : "Under %"}
+            </th>
             <th className="px-3 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.12em] text-center">Signal</th>
             <th className="px-3 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.12em] text-right">Digit</th>
           </tr>
@@ -95,12 +101,21 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
                   )}
                 </td>
                 <td className="px-3 py-2.5 text-right">
-                  <span
-                    className={`text-[13px] ${getUnderColor(sym.underPct, isWarmed)}`}
-                    style={{ fontFamily: "IBM Plex Mono, monospace" }}
-                  >
-                    {isWarmed ? `${sym.underPct.toFixed(1)}%` : "—"}
-                  </span>
+                  {(() => {
+                    const displayPct = isEvenOdd
+                      ? Math.max((sym as any).evenPct ?? 0, (sym as any).oddPct ?? 0)
+                      : sym.underPct;
+                    const threshold = isEvenOdd ? (config.evenOddDominance ?? 55) : config.minUnderPercentage;
+                    const color = !isWarmed ? "text-[#7f7667]"
+                      : displayPct >= threshold ? "text-[#775a19] font-bold"
+                      : displayPct >= threshold - 5 ? "text-amber-600"
+                      : "text-[#7f7667]";
+                    return (
+                      <span className={`text-[13px] ${color}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {isWarmed ? `${displayPct.toFixed(1)}%` : "—"}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="px-3 py-2.5 text-center">
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${getStrengthStyle(sym.signalStrength)}`}>

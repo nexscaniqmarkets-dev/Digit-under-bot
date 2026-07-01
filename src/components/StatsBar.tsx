@@ -20,6 +20,13 @@ export default function StatsBar({
   multiplier,
 }: StatsBarProps) {
   const underPct = activeSymbolState?.underPct ?? 0;
+  const evenPct = activeSymbolState?.evenPct ?? 0;
+  const oddPct = activeSymbolState?.oddPct ?? 0;
+  const isEvenOdd = (config.strategy ?? "under") === "evenodd";
+  const dominantPct = isEvenOdd ? Math.max(evenPct, oddPct) : underPct;
+  const dominantLabel = isEvenOdd
+    ? (evenPct >= oddPct ? `EVEN ${evenPct.toFixed(1)}% · ODD ${oddPct.toFixed(1)}%` : `ODD ${oddPct.toFixed(1)}% · EVEN ${evenPct.toFixed(1)}%`)
+    : `Target ≥ ${config.minUnderPercentage}% to qualify · Under ${config.referenceDigit}`;
   const signalStrength = activeSymbolState?.signalStrength ?? "SCANNING...";
   const confirmationCounter = activeSymbolState?.confirmationCounter ?? 0;
   const currentStake = config.stakeAmount * multiplier;
@@ -37,26 +44,28 @@ export default function StatsBar({
 
   return (
     <div className="grid grid-cols-2 gap-3 animate-fade-in">
-      {/* Under % — full width */}
+      {/* Under % / Even-Odd dominance — full width */}
       <div className="glass-card rounded-xl p-4 flex flex-col gap-1 col-span-2">
         <div className="flex justify-between items-center">
-          <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">UNDER DIGIT %</span>
+          <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">
+            {isEvenOdd ? "EVEN / ODD DOMINANCE" : "UNDER DIGIT %"}
+          </span>
           <div className="flex items-center gap-2">
             {activeSymbolState && (
               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${sc.badge}`}>
                 {signalStrength}
               </span>
             )}
-            <span className="material-symbols-outlined text-[#775a19] text-sm">trending_down</span>
+            <span className="material-symbols-outlined text-[#775a19] text-sm">
+              {isEvenOdd ? "swap_horiz" : "trending_down"}
+            </span>
           </div>
         </div>
         <div className={`text-[48px] leading-tight font-bold tracking-tighter ${sc.val}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-          {activeSymbolState ? `${underPct.toFixed(1)}%` : "—"}
+          {activeSymbolState ? `${dominantPct.toFixed(1)}%` : "—"}
         </div>
         <p className="text-[11px] text-[#4e4639]/70 leading-snug">
-          {activeSymbolState
-            ? `Target ≥ ${config.minUnderPercentage}% to qualify · Under ${config.referenceDigit}`
-            : "Awaiting active scanning data…"}
+          {activeSymbolState ? dominantLabel : "Awaiting active scanning data…"}
         </p>
       </div>
 

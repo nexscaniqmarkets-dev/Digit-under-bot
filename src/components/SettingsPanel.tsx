@@ -76,6 +76,83 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
       </div>
 
       <form onSubmit={handleApply} className="flex flex-col gap-3">
+        {/* Strategy Selector */}
+        <div className="glass-card rounded-xl overflow-hidden">
+          <AccordionHeader id="strategy" icon="swap_horiz" title="STRATEGY" />
+          {openGroup === "strategy" && (
+            <div className="px-4 pb-5 pt-2 flex flex-col gap-4 border-t border-[#d1c5b4]/50">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">TRADING STRATEGY</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: "under", label: "DIGIT UNDER", icon: "trending_down", desc: "Predict last digit under barrier" },
+                    { value: "evenodd", label: "EVEN / ODD", icon: "swap_horiz", desc: "Predict parity reversal pattern" },
+                  ].map(({ value, label, icon, desc }) => (
+                    <button
+                      key={value} type="button" disabled={isRunning}
+                      onClick={() => set("strategy", value as any)}
+                      className={`flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl border transition-all cursor-pointer disabled:opacity-40 ${
+                        (formData.strategy ?? "under") === value
+                          ? "border-[#775a19] bg-[#ffdea5] text-[#4e3700]"
+                          : "border-[#d1c5b4] bg-[#f5ede4] text-[#4e4639] hover:border-[#c5a059]"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[22px]">{icon}</span>
+                      <span className="text-[11px] font-black uppercase tracking-wider">{label}</span>
+                      <span className="text-[9px] opacity-70 text-center leading-tight">{desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Even/Odd sub-options */}
+              {(formData.strategy ?? "under") === "evenodd" && (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">EVEN/ODD MODE</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { value: "Standard", label: "STANDARD", desc: "Fixed stake, no progression" },
+                        { value: "Pro", label: "PRO", desc: "2× martingale on loss" },
+                      ].map(({ value, label, desc }) => (
+                        <button
+                          key={value} type="button" disabled={isRunning}
+                          onClick={() => set("evenOddMode", value as any)}
+                          className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl border transition-all cursor-pointer disabled:opacity-40 ${
+                            (formData.evenOddMode ?? "Standard") === value
+                              ? "border-[#775a19] bg-[#ffdea5] text-[#4e3700]"
+                              : "border-[#d1c5b4] bg-[#f5ede4] text-[#4e4639] hover:border-[#c5a059]"
+                          }`}
+                        >
+                          <span className="text-[11px] font-black uppercase tracking-wider">{label}</span>
+                          <span className="text-[9px] opacity-70 text-center leading-tight">{desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">DOMINANCE THRESHOLD</label>
+                      <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {formData.evenOddDominance ?? 55}%
+                      </span>
+                    </div>
+                    <input
+                      type="range" min="51" max="75" disabled={isRunning}
+                      value={formData.evenOddDominance ?? 55}
+                      onChange={(e) => set("evenOddDominance", parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                    />
+                    <p className="text-[9px] text-[#7f7667]">
+                      Min even% or odd% required on the selected pair before trading (51–75%). Default: 55%.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Accordion 1: Basic Tuning */}
         <div className="glass-card rounded-xl overflow-hidden">
           <AccordionHeader id="tuning" icon="tune" title="BASIC TUNING" />
@@ -96,7 +173,8 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                 </div>
               </div>
 
-              {/* Reference Digit */}
+              {/* Reference Digit — Digit Under only */}
+              {(formData.strategy ?? "under") === "under" && (
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">REFERENCE DIGIT (BARRIER)</label>
                 <div className="grid grid-cols-5 gap-2">
@@ -117,8 +195,10 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                 </div>
                 <p className="text-[9px] text-[#7f7667] mt-1">Bot places DIGITUNDER — wins if last digit is strictly less than this value.</p>
               </div>
+              )}
 
-              {/* Show all modes toggle */}
+              {/* Show all modes toggle — Digit Under only */}
+              {(formData.strategy ?? "under") === "under" && (
               <div className="flex items-center justify-between py-2 border-t border-[#d1c5b4]/30">
                 <div>
                   <span className="text-[13px] text-[#1e1b16] font-semibold uppercase tracking-[0.04em]">SHOW ALL TRADING MODES</span>
@@ -131,6 +211,7 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                   onClick={() => !isRunning && set("showAllModes", !formData.showAllModes)}
                 />
               </div>
+              )}
             </div>
           )}
         </div>
@@ -155,7 +236,8 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                 <p className="text-[9px] text-[#7f7667]">Historical ticks used to compute frequency scores (10–300)</p>
               </div>
 
-              {/* Min Under % */}
+              {/* Min Under % — Digit Under only */}
+              {(formData.strategy ?? "under") === "under" && (
               <div className="flex flex-col gap-2">
                 <div className="flex justify-between items-center">
                   <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">MIN UNDER PROBABILITY %</label>
@@ -168,6 +250,7 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                   className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
                 />
               </div>
+              )}
 
               {/* Fixed params */}
               <div className="grid grid-cols-2 gap-3 pt-2 border-t border-[#d1c5b4]/30">

@@ -32,6 +32,9 @@ export interface BotConfig {
   selectedSymbol: string;
   mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite" | "GradualRecoveryProLite";
   showAllModes?: boolean; // when false, forces GradualRecoveryProLite and hides mode selector
+  strategy?: "under" | "evenodd"; // which strategy engine drives the bot — defaults to "under"
+  evenOddMode?: "Standard" | "Pro"; // mode system for the Even/Odd strategy only
+  evenOddDominance?: number; // min EVEN%/ODD% dominance required to qualify a pair (default 55)
   appId: string;
   apiToken: string;
   demoMode: boolean; // if true, simulates virtual trades inside the bot
@@ -54,6 +57,8 @@ export interface SymbolState {
   buffer: number[];
   underPct: number;
   overPct: number;
+  evenPct: number;
+  oddPct: number;
   signalStrength: "VERY STRONG" | "STRONG" | "MODERATE" | "WEAK" | "SCANNING...";
   confirmationCounter: number;
   digitFreq: Record<number, number>;
@@ -63,16 +68,19 @@ export interface SymbolState {
   tickCount: number;
   lastTickTime: number; // For detecting markets going silent (closed)
   isClosed: boolean; // Silent > 30 seconds
+  // Even/Odd strategy: tracks the current live run of consecutive same-parity digits
+  evenOddStreakType: "EVEN" | "ODD" | null;
+  evenOddStreakCount: number;
 }
 
 export interface TradeLog {
   id: number;
   timestamp: string; // ISO string
   symbol: string;
-  mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite" | "GradualRecoveryProLite";
-  under_pct: number;
+  mode: string; // e.g. "GradualRecoveryProLite" or "EvenOdd-Standard" / "EvenOdd-Pro"
+  under_pct: number; // for evenodd trades, this holds the dominance % instead
   signal_strength: string;
-  barrier: number;
+  barrier: number; // 0 for Even/Odd trades (no barrier)
   stake: number;
   multiplier: number;
   outcome: "WIN" | "LOSS";
@@ -81,6 +89,7 @@ export interface TradeLog {
   daily_trade_no: number;
   consecutive_losses_before: number;
   in_recovery: boolean;
+  direction?: "EVEN" | "ODD"; // set only for Even/Odd strategy trades
 }
 
 export interface ToastMessage {

@@ -135,6 +135,9 @@ const DEFAULT_CONFIG: BotConfig = {
   selectedSymbol: "1HZ100V",
   mode: "GradualRecoveryProLite",
   showAllModes: false,
+  strategy: "under",
+  evenOddMode: "Standard",
+  evenOddDominance: 55,
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -187,8 +190,10 @@ class ServerBot {
   private silenceCheckInterval: NodeJS.Timeout | null = null;
 
   // Trade tracking refs equivalent
-  private pendingRealContract: { id: number | string; symbol: string; stake: number; seq: number } | null = null;
-  private pendingVirtualContract: { symbol: string; stake: number; barrier: number; multiplier: number; seq: number; timestamp: string } | null = null;
+  private pendingRealContract: { id: number | string; symbol: string; stake: number; seq: number; under_pct?: number; signal_strength?: string; direction?: "EVEN" | "ODD" } | null = null;
+  private pendingVirtualContract: { symbol: string; stake: number; barrier: number; multiplier: number; seq: number; timestamp: string; under_pct?: number; signal_strength?: string; direction?: "EVEN" | "ODD" } | null = null;
+  // Even/Odd strategy: holds a fired pattern signal until processEvenOddMachine consumes it
+  private pendingEvenOddSignal: { symbol: string; direction: "EVEN" | "ODD" } | null = null;
 
   // Streak/Perf Trackers
   private currentStreak: number = 0;
@@ -541,6 +546,7 @@ class ServerBot {
     this.worstDrawdown = 0;
     this.pendingRealContract = null;
     this.pendingVirtualContract = null;
+    this.pendingEvenOddSignal = null;
     this.showSummary = false;
     this.sessionStats = null;
 
@@ -602,6 +608,7 @@ class ServerBot {
     this.worstDrawdown = 0;
     this.pendingRealContract = null;
     this.pendingVirtualContract = null;
+    this.pendingEvenOddSignal = null;
     this.showSummary = false;
     this.sessionStats = null;
 
@@ -624,6 +631,8 @@ class ServerBot {
         buffer: [],
         underPct: 0,
         overPct: 0,
+        evenPct: 0,
+        oddPct: 0,
         signalStrength: "SCANNING...",
         confirmationCounter: 0,
         digitFreq: Array.from({ length: 10 }, (_, i) => i).reduce((acc, d) => ({ ...acc, [d]: 0 }), {}),
@@ -632,7 +641,9 @@ class ServerBot {
         qualified: false,
         tickCount: 0,
         lastTickTime: 0,
-        isClosed: false
+        isClosed: false,
+        evenOddStreakType: null,
+        evenOddStreakCount: 0
       };
     });
     this.symbolStates = initialStates;
@@ -729,6 +740,7 @@ class ServerBot {
     this.worstDrawdown = 0;
     this.pendingRealContract = null;
     this.pendingVirtualContract = null;
+    this.pendingEvenOddSignal = null;
     this.showSummary = false;
     this.sessionStats = null;
 
@@ -1026,6 +1038,11 @@ class ServerBot {
     const underPct = bufferLength > 0 ? Number(((underCount / bufferLength) * 100).toFixed(1)) : 0;
     const overPct = bufferLength > 0 ? Number(((overCount / bufferLength) * 100).toFixed(1)) : 0;
 
+    const evenCount = finalBuffer.filter(d => d % 2 === 0).length;
+    const oddCount = bufferLength - evenCount;
+    const evenPct = bufferLength > 0 ? Number(((evenCount / bufferLength) * 100).toFixed(1)) : 0;
+    const oddPct = bufferLength > 0 ? Number(((oddCount / bufferLength) * 100).toFixed(1)) : 0;
+
     let strength: SymbolState["signalStrength"] = "SCANNING...";
     if (underPct >= 80) strength = "VERY STRONG";
     else if (underPct >= 75) strength = "STRONG";
@@ -1039,6 +1056,8 @@ class ServerBot {
       buffer: finalBuffer,
       underPct,
       overPct,
+      evenPct,
+      oddPct,
       signalStrength: strength,
       digitFreq: digitCounts,
       digitPct: digitPercentages,
@@ -1097,6 +1116,34 @@ class ServerBot {
     const underPct = bufferLength > 0 ? Number(((underCount / bufferLength) * 100).toFixed(1)) : 0;
     const overPct = bufferLength > 0 ? Number(((overCount / bufferLength) * 100).toFixed(1)) : 0;
 
+    const evenCount = updatedBuffer.filter(d => d % 2 === 0).length;
+    const oddCount = bufferLength - evenCount;
+    const evenPct = bufferLength > 0 ? Number(((evenCount / bufferLength) * 100).toFixed(1)) : 0;
+    const oddPct = bufferLength > 0 ? Number(((oddCount / bufferLength) * 100).toFixed(1)) : 0;
+
+    // Even/Odd strategy: track the live run of consecutive same-parity digits and detect
+    // the "3 same-parity then a flip" reversal pattern that fires a trade signal.
+    let nextStreakType = sState.evenOddStreakType;
+    let nextStreakCount = sState.evenOddStreakCount;
+    if (this.config.strategy === "evenodd") {
+      const parity: "EVEN" | "ODD" = lastDigit % 2 === 0 ? "EVEN" : "ODD";
+      const prevType = sState.evenOddStreakType;
+      const prevCount = sState.evenOddStreakCount;
+
+      if (prevType !== null && prevType !== parity && prevCount >= 3 && this.activeSymbol === symbol) {
+        // Pattern fired: 3+ consecutive prevType digits, now broken by the opposite parity.
+        // Trade in the direction of the digit that just broke the streak.
+        this.pendingEvenOddSignal = { symbol, direction: parity };
+      }
+
+      if (prevType === parity) {
+        nextStreakCount = prevCount + 1;
+      } else {
+        nextStreakType = parity;
+        nextStreakCount = 1;
+      }
+    }
+
     let strength: SymbolState["signalStrength"] = "SCANNING...";
     if (underPct >= 80) strength = "VERY STRONG";
     else if (underPct >= 75) strength = "STRONG";
@@ -1110,6 +1157,10 @@ class ServerBot {
       buffer: updatedBuffer,
       underPct,
       overPct,
+      evenPct,
+      oddPct,
+      evenOddStreakType: nextStreakType,
+      evenOddStreakCount: nextStreakCount,
       signalStrength: strength,
       digitFreq: digitCounts,
       digitPct: digitPercentages,
@@ -1122,7 +1173,332 @@ class ServerBot {
 
     this.symbolStates[symbol] = updatedState;
 
-    this.processTradingMachine(symbol, updatedState);
+    if (this.config.strategy === "evenodd") {
+      this.processEvenOddMachine(symbol, updatedState);
+    } else {
+      this.processTradingMachine(symbol, updatedState);
+    }
+  }
+
+  // ─── Even/Odd Strategy Engine ─────────────────────────────────────────────
+
+  /**
+   * Main tick dispatch for the even/odd strategy.
+   * Called every tick instead of processTradingMachine when strategy === "evenodd".
+   */
+  private processEvenOddMachine(symbol: string, state: SymbolState) {
+    // Warmup: wait until at least 5 markets have enough tick history
+    if (this.botState === "STATE_WARMING_UP") {
+      const readyCount = Object.values(this.symbolStates).filter(
+        s => s.buffer.length >= this.config.analysisTickCount
+      ).length;
+      if (readyCount >= 5) {
+        this.botState = "STATE_SCANNING";
+        this.showToast("Scanning warmup complete. Even/Odd engine active.", "blue");
+        this.selectEvenOddSymbol();
+      }
+      return;
+    }
+
+    if (this.botState === "STATE_IDLE" || this.botState === "STATE_STOPPED") return;
+
+    // Settlement dispatch for virtual (demo) trades
+    if (this.awaitingSettlement && this.pendingVirtualContract && this.pendingVirtualContract.symbol === symbol) {
+      this.handleEvenOddVirtualSettled(state.lastDigit!);
+      return;
+    }
+
+    // Always try to lock onto the best pair while scanning
+    if (this.botState === "STATE_SCANNING") {
+      this.selectEvenOddSymbol();
+      return;
+    }
+
+    // If we're locked on this symbol and a pattern signal fired, execute
+    if (this.botState === "STATE_CONFIRMING" && this.activeSymbol === symbol) {
+      if (this.pendingEvenOddSignal && this.pendingEvenOddSignal.symbol === symbol) {
+        const sig = this.pendingEvenOddSignal;
+        this.pendingEvenOddSignal = null;
+
+        // Re-validate dominance before firing
+        const dominanceThreshold = this.config.evenOddDominance ?? 55;
+        const dominant = Math.max(state.evenPct, state.oddPct);
+        if (dominant < dominanceThreshold) {
+          this.showToast(
+            `Signal ignored: dominance dropped to ${dominant}% (need ≥${dominanceThreshold}%). Re-scanning.`,
+            "grey"
+          );
+          this.activeSymbol = null;
+          this.botState = "STATE_SCANNING";
+          this.selectEvenOddSymbol();
+          return;
+        }
+
+        this.botState = "STATE_TRADING";
+        this.executeEvenOddTrade(sig.symbol, sig.direction, state);
+      }
+    }
+  }
+
+  /**
+   * Scan all symbols and lock onto the pair with the highest even/odd dominance ≥ threshold.
+   * "Dominance" = max(evenPct, oddPct) — whichever side is stronger right now.
+   */
+  private selectEvenOddSymbol() {
+    if (this.botState === "STATE_TRADING" || this.awaitingSettlement) return;
+
+    const dominanceThreshold = this.config.evenOddDominance ?? 55;
+    const minBuffer = this.config.analysisTickCount;
+
+    const candidates = Object.values(this.symbolStates).filter(
+      s => Math.max(s.evenPct, s.oddPct) >= dominanceThreshold &&
+           s.buffer.length >= minBuffer &&
+           !s.isClosed
+    );
+
+    if (candidates.length === 0) {
+      if (this.activeSymbol !== null) {
+        this.activeSymbol = null;
+        this.botState = "STATE_SCANNING";
+        this.showToast("No pairs meet ≥55% even/odd dominance — continuing to scan.", "grey");
+      }
+      return;
+    }
+
+    // Pick the pair with the highest dominance
+    candidates.sort((a, b) => Math.max(b.evenPct, b.oddPct) - Math.max(a.evenPct, a.oddPct));
+    const best = candidates[0];
+
+    if (best.symbol !== this.activeSymbol) {
+      if (this.activeSymbol && this.symbolStates[this.activeSymbol]) {
+        this.symbolStates[this.activeSymbol].evenOddStreakCount = 0;
+        this.symbolStates[this.activeSymbol].evenOddStreakType = null;
+      }
+      this.pendingEvenOddSignal = null; // flush any stale signal from the old symbol
+      this.activeSymbol = best.symbol;
+      this.botState = "STATE_CONFIRMING";
+      const dominantSide = best.evenPct >= best.oddPct ? "EVEN" : "ODD";
+      this.showToast(
+        `Locked on ${best.displayName} — ${dominantSide} dominance: ${Math.max(best.evenPct, best.oddPct)}%. Watching for 3-digit pattern…`,
+        "blue"
+      );
+    }
+  }
+
+  /**
+   * Execute an Even/Odd trade (DIGITEVEN or DIGITODD, no barrier).
+   */
+  private executeEvenOddTrade(symbol: string, direction: "EVEN" | "ODD", state: SymbolState) {
+    const baseStake = this.config.stakeAmount;
+    let computedStake = baseStake;
+
+    // Pro mode: 2× martingale on loss, reset on win
+    if ((this.config.evenOddMode ?? "Standard") === "Pro" && this.consecutiveLosses > 0) {
+      computedStake = Number((baseStake * this.multiplier).toFixed(2));
+    }
+
+    // Balance check
+    const isSandbox = this.config.demoMode || !this.config.apiToken;
+    const currentBalance = isSandbox
+      ? Math.max(0, (Number(this.balance) || 10000) - this.bankBalance)
+      : (Number(this.balance) || 0);
+    if (computedStake > currentBalance) {
+      this.showToast(
+        `Insufficient balance. Required: $${computedStake.toFixed(2)}, Available: $${currentBalance.toFixed(2)}. Halting bot.`,
+        "red"
+      );
+      this.haltBot(`Insufficient balance for Even/Odd stake: $${computedStake} vs $${currentBalance}`);
+      return;
+    }
+
+    const dominance = direction === "EVEN" ? state.evenPct : state.oddPct;
+    const contractType = direction === "EVEN" ? "DIGITEVEN" : "DIGITODD";
+    this.awaitingSettlement = true;
+
+    this.showToast(
+      `Order logged: [${contractType}] on ${state.displayName} ($${computedStake.toFixed(2)}) — ${direction} dominance: ${dominance}%`,
+      "blue"
+    );
+
+    if (isSandbox) {
+      this.pendingVirtualContract = {
+        symbol,
+        stake: computedStake,
+        barrier: 0, // no barrier for even/odd
+        multiplier: Number((computedStake / baseStake).toFixed(2)),
+        seq: this.sequenceDone,
+        timestamp: new Date().toISOString(),
+        under_pct: dominance,
+        signal_strength: state.signalStrength,
+        direction
+      };
+    } else {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.pendingRealContract = {
+          id: "",
+          symbol,
+          stake: computedStake,
+          seq: this.sequenceDone,
+          under_pct: dominance,
+          signal_strength: state.signalStrength,
+          direction
+        };
+
+        const proposalPayload = {
+          proposal: 1,
+          amount: computedStake,
+          basis: "stake",
+          contract_type: contractType,
+          currency: this.accountCurrency || "USD",
+          duration: 1,
+          duration_unit: "t",
+          underlying_symbol: symbol
+        };
+
+        this.ws.send(JSON.stringify(proposalPayload));
+      }
+    }
+  }
+
+  /**
+   * Virtual (demo) settlement for Even/Odd contracts.
+   * Win = settled digit parity matches the direction traded.
+   */
+  private handleEvenOddVirtualSettled(settledDigit: number) {
+    const contract = this.pendingVirtualContract;
+    if (!contract || !contract.direction) return;
+
+    this.pendingVirtualContract = null;
+    this.awaitingSettlement = false;
+
+    const settledParity: "EVEN" | "ODD" = settledDigit % 2 === 0 ? "EVEN" : "ODD";
+    const isWin = settledParity === contract.direction;
+
+    // Even/Odd flat payout: ~95% of stake
+    const EVENODD_PAYOUT = 0.95;
+    const profitAmount = isWin
+      ? Number((contract.stake * EVENODD_PAYOUT).toFixed(2))
+      : -contract.stake;
+
+    this.processEvenOddOutcome(
+      isWin ? "WIN" : "LOSS",
+      contract.symbol,
+      contract.stake,
+      profitAmount,
+      contract.under_pct ?? 0,
+      contract.signal_strength ?? "STRONG",
+      contract.direction
+    );
+  }
+
+  /**
+   * Outcome handler for Even/Odd trades — handles martingale Pro mode and resets streak/symbol.
+   */
+  private processEvenOddOutcome(
+    outcome: "WIN" | "LOSS",
+    symbol: string,
+    stake: number,
+    profit: number,
+    dominance: number,
+    signalStrength: string,
+    direction: "EVEN" | "ODD"
+  ) {
+    const nextSessionProfit = Number((this.sessionProfit + profit).toFixed(2));
+    this.sessionProfit = nextSessionProfit;
+    const nextDailyTrades = this.dailyTradesCount + 1;
+    this.dailyTradesCount = nextDailyTrades;
+
+    // Update sandbox balance
+    if (this.config.demoMode || !this.config.apiToken) {
+      this.sandboxBalance = Number((this.sandboxBalance + profit).toFixed(2));
+      this.config.demoBalance = this.sandboxBalance;
+      this.balance = this.sandboxBalance.toFixed(2);
+      this.saveConfigPersistence();
+      if (this.onBalanceChange) {
+        this.onBalanceChange(this.telegramId, this.sandboxBalance);
+      }
+    }
+
+    // Streak / drawdown tracking
+    if (outcome === "WIN") {
+      this.currentStreak += 1;
+      if (this.currentStreak > this.bestStreak) this.bestStreak = this.currentStreak;
+    } else {
+      this.currentStreak = 0;
+    }
+    if (nextSessionProfit > this.peakProfit) this.peakProfit = nextSessionProfit;
+    const drawdown = this.peakProfit - nextSessionProfit;
+    if (drawdown > this.worstDrawdown) this.worstDrawdown = drawdown;
+
+    // Log trade
+    const nextId = this.tradeLogs.length > 0 ? Math.max(...this.tradeLogs.map(l => l.id)) + 1 : 1;
+    const modeLabel = `EvenOdd-${this.config.evenOddMode ?? "Standard"}`;
+    const newLog: TradeLog = {
+      id: nextId,
+      timestamp: new Date().toISOString(),
+      symbol,
+      mode: modeLabel,
+      under_pct: dominance,
+      signal_strength: signalStrength,
+      barrier: 0,
+      stake,
+      multiplier: this.multiplier,
+      outcome,
+      profit,
+      session_profit: nextSessionProfit,
+      daily_trade_no: nextDailyTrades,
+      consecutive_losses_before: this.consecutiveLosses,
+      in_recovery: this.inRecovery,
+      direction
+    };
+    this.tradeLogs = [newLog, ...this.tradeLogs].slice(0, 200);
+    this.saveLogsPersistence();
+
+    if (outcome === "WIN") {
+      tgNotifier.notifyTradeWin(newLog);
+    } else {
+      tgNotifier.notifyTradeLoss(newLog);
+    }
+
+    // Pro mode: 2× on loss, reset on win
+    if ((this.config.evenOddMode ?? "Standard") === "Pro") {
+      if (outcome === "WIN") {
+        this.consecutiveLosses = 0;
+        this.multiplier = 1;
+        this.inRecovery = false;
+        this.showToast(`WIN! +$${profit.toFixed(2)} [EvenOdd Pro]. Stake reset to base.`, "green");
+      } else {
+        this.consecutiveLosses += 1;
+        this.multiplier = Math.pow(2, this.consecutiveLosses);
+        this.inRecovery = true;
+        const nextStake = Number((this.config.stakeAmount * this.multiplier).toFixed(2));
+        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. Next stake: $${nextStake.toFixed(2)} (×${this.multiplier}).`, "red");
+      }
+    } else {
+      // Standard: fixed stake, no progression
+      if (outcome === "WIN") {
+        this.showToast(`WIN! +$${profit.toFixed(2)} [EvenOdd Standard].`, "green");
+      } else {
+        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard].`, "red");
+      }
+    }
+
+    const nextSeqDone = this.sequenceDone + 1;
+    this.sequenceDone = nextSeqDone;
+
+    const limitsTriggered = this.checkSessionLimits();
+    if (!limitsTriggered) {
+      // Full reset per cycle: clear streak, drop symbol lock, scan for best pair again
+      if (this.activeSymbol && this.symbolStates[this.activeSymbol]) {
+        this.symbolStates[this.activeSymbol].evenOddStreakType = null;
+        this.symbolStates[this.activeSymbol].evenOddStreakCount = 0;
+      }
+      this.pendingEvenOddSignal = null;
+      this.activeSymbol = null;
+      this.botState = "STATE_SCANNING";
+      this.showToast("Cycle complete. Resetting and scanning for next opportunity.", "blue");
+      this.selectEvenOddSymbol();
+    }
   }
 
   private processTradingMachine(symbol: string, symbolStateData: SymbolState) {
@@ -1451,6 +1827,20 @@ class ServerBot {
     const currentActive = this.symbolStates[symbol] || (this.activeSymbol ? this.symbolStates[this.activeSymbol] : null);
     const signalStr = savedContract?.signal_strength || (currentActive ? currentActive.signalStrength : "STRONG");
     const under_pct = savedContract?.under_pct ?? (currentActive ? currentActive.underPct : 0);
+
+    // Even/Odd real trades: route to dedicated outcome handler
+    if (this.config.strategy === "evenodd" && savedContract?.direction) {
+      this.processEvenOddOutcome(
+        isWin ? "WIN" : "LOSS",
+        symbol,
+        stakeAmount,
+        profitAmount,
+        under_pct,
+        signalStr,
+        savedContract.direction
+      );
+      return;
+    }
 
     this.processContractOutcome(isWin ? "WIN" : "LOSS", symbol, stakeAmount, profitAmount, under_pct, signalStr);
   }

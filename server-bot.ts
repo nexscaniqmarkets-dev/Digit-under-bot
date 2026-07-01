@@ -1137,7 +1137,7 @@ class ServerBot {
       const prevType = sState.evenOddStreakType;
       const prevCount = sState.evenOddStreakCount;
 
-      if (prevType !== null && prevType !== parity && prevCount >= 3 && this.activeSymbol === symbol) {
+      if (prevType !== null && prevType !== parity && prevCount === 3 && this.activeSymbol === symbol) {
         // Pattern fired: 3+ consecutive prevType digits, now broken by the opposite parity.
         // Trade in the direction of the digit that just broke the streak.
         this.pendingEvenOddSignal = { symbol, direction: parity };

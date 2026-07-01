@@ -138,6 +138,7 @@ const DEFAULT_CONFIG: BotConfig = {
   strategy: "under",
   evenOddMode: "Standard",
   evenOddDominance: 55,
+  evenOddMartingale: 2,
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -1476,10 +1477,11 @@ class ServerBot {
         this.showToast(`WIN! +$${profit.toFixed(2)} [EvenOdd Pro]. Stake reset to base.`, "green");
       } else {
         this.consecutiveLosses += 1;
-        this.multiplier = Math.pow(2, this.consecutiveLosses);
+        const m = this.config.evenOddMartingale ?? 2;
+        this.multiplier = Math.pow(m, this.consecutiveLosses);
         this.inRecovery = true;
         const nextStake = Number((this.config.stakeAmount * this.multiplier).toFixed(2));
-        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. Next stake: $${nextStake.toFixed(2)} (×${this.multiplier}).`, "red");
+        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. Next stake: $${nextStake.toFixed(2)} (×${this.multiplier.toFixed(2)}).`, "red");
       }
     } else {
       // Standard: fixed stake, track consecutive losses for the 4-loss stop loss

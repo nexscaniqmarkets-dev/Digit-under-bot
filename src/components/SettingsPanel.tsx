@@ -113,7 +113,7 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                     <div className="grid grid-cols-2 gap-2">
                       {[
                         { value: "Standard", label: "STANDARD", desc: "Fixed stake, no progression" },
-                        { value: "Pro", label: "PRO", desc: "2× martingale on loss" },
+                        { value: "Pro", label: "PRO", desc: `${formData.evenOddMartingale ?? 2}× martingale on loss` },
                       ].map(({ value, label, desc }) => (
                         <button
                           key={value} type="button" disabled={isRunning}
@@ -130,6 +130,41 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                       ))}
                     </div>
                   </div>
+                  {/* Martingale multiplier — Pro only */}
+                  {(formData.evenOddMode ?? "Standard") === "Pro" && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">MARTINGALE MULTIPLIER</label>
+                      <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {(formData.evenOddMartingale ?? 2).toFixed(1)}×
+                      </span>
+                    </div>
+                    <input
+                      type="range" min="1.2" max="4" step="0.1" disabled={isRunning}
+                      value={formData.evenOddMartingale ?? 2}
+                      onChange={(e) => set("evenOddMartingale", parseFloat(e.target.value))}
+                      className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                    />
+                    <div className="flex justify-between text-[9px] text-[#7f7667]">
+                      <span>1.2× (conservative)</span>
+                      <span>2× (standard)</span>
+                      <span>4× (aggressive)</span>
+                    </div>
+                    {(() => {
+                      const m = formData.evenOddMartingale ?? 2;
+                      const s = formData.stakeAmount ?? 1;
+                      const l1 = (s * m).toFixed(2);
+                      const l2 = (s * Math.pow(m, 2)).toFixed(2);
+                      const l3 = (s * Math.pow(m, 3)).toFixed(2);
+                      return (
+                        <p className="text-[9px] text-[#7f7667] bg-[#f0e8df] rounded-lg px-2.5 py-1.5 leading-relaxed">
+                          Stake progression: ${s} → ${l1} → ${l2} → ${l3} (then SL halts)
+                        </p>
+                      );
+                    })()}
+                  </div>
+                  )}
+
                   <div className="flex flex-col gap-2">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">DOMINANCE THRESHOLD</label>

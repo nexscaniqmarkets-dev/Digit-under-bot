@@ -35,6 +35,7 @@ export interface BotConfig {
   strategy?: "under" | "evenodd"; // which strategy engine drives the bot — defaults to "under"
   evenOddMode?: "Standard" | "Pro"; // mode system for the Even/Odd strategy only
   evenOddDominance?: number; // min EVEN%/ODD% dominance required to qualify a pair (default 55)
+  evenOddMartingale?: number; // multiplier applied on each loss in Pro mode (default 2)
   appId: string;
   apiToken: string;
   demoMode: boolean; // if true, simulates virtual trades inside the bot

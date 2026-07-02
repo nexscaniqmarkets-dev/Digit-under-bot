@@ -98,6 +98,7 @@ export default function TradeLogTable({ logs, onClearLogs }: TradeLogTableProps)
                 {logs.map((log) => {
                   const t = new Date(log.timestamp);
                   const timeStr = t.toLocaleTimeString("en-US", { hour12: false });
+                  const isEvenOdd = log.mode?.startsWith("EvenOdd");
                   const modeShort = log.mode === "GradualRecoveryProLite" ? "SPL-PRO-L" : log.mode === "GradualRecoveryPro" ? "SPL-PRO" : log.mode === "GradualRecoveryLite" ? "SPL-L" : log.mode === "GradualRecovery" ? "SPL-M" : "STD";
 
                   return (
@@ -108,8 +109,17 @@ export default function TradeLogTable({ logs, onClearLogs }: TradeLogTableProps)
                         {log.symbol.replace("1HZ", "V").replace("V", "V").replace("R_", "V")}
                       </td>
                       <td className="px-3 py-2.5 text-[11px] text-[#4e4639]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                        U-{log.barrier}
-                        {log.multiplier > 1 && <span className="text-[9px] opacity-60 ml-1">M{log.multiplier}</span>}
+                        {isEvenOdd ? (
+                          <>
+                            <span>{log.direction ?? "E/O"}</span>
+                            <span className="text-[9px] opacity-60 ml-1">{log.mode?.replace("EvenOdd-", "")}</span>
+                          </>
+                        ) : (
+                          <>
+                            U-{log.barrier}
+                            {log.multiplier > 1 && <span className="text-[9px] opacity-60 ml-1">M{log.multiplier}</span>}
+                          </>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-[12px] text-right text-[#1e1b16]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>${log.stake.toFixed(2)}</td>
                       <td className="px-3 py-2.5 text-center">

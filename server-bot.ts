@@ -1234,10 +1234,11 @@ class ServerBot {
     // If we're locked on this symbol and a pattern signal fired, execute
     if (this.botState === "STATE_CONFIRMING" && this.activeSymbol === symbol) {
       // ── Continuous credibility monitor ─────────────────────────────────────
-      // Every tick, re-check that the locked pair still qualifies. If dominance
-      // has fallen below the threshold, drop it immediately and re-scan — don't
-      // wait for a signal to fire on a pair that's no longer valid.
-      const dominanceThreshold = this.config.evenOddDominance ?? 55;
+      // Every tick, re-check that the locked pair still qualifies. During cooldown
+      // the threshold is raised to 60% for a stronger setup requirement.
+      const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
+        ? 60
+        : (this.config.evenOddDominance ?? 55);
       const currentDominance = Math.max(state.evenPct, state.oddPct);
       if (currentDominance < dominanceThreshold) {
         this.showToast(
@@ -1258,7 +1259,10 @@ class ServerBot {
         const sig = this.pendingEvenOddSignal;
         this.pendingEvenOddSignal = null;
 
-        // Cooldown: skip this signal if we still have skips remaining
+        // Re-validate dominance — use raised threshold if still in cooldown
+        const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
+          ? 60
+          : (this.config.evenOddDominance ?? 55);
         if (this.evenOddCooldownSkipsRemaining > 0) {
           this.evenOddCooldownSkipsRemaining -= 1;
           const skipsLeft = this.evenOddCooldownSkipsRemaining;
@@ -1288,8 +1292,9 @@ class ServerBot {
   private selectEvenOddSymbol() {
     if (this.botState === "STATE_TRADING" || this.awaitingSettlement) return;
 
-    const dominanceThreshold = this.config.evenOddDominance ?? 55;
-    const minBuffer = this.config.analysisTickCount;
+    const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
+      ? 60  // raised threshold during cooldown
+      : (this.config.evenOddDominance ?? 55);
 
     const candidates = Object.values(this.symbolStates).filter(
       s => Math.max(s.evenPct, s.oddPct) >= dominanceThreshold &&
@@ -1517,9 +1522,10 @@ class ServerBot {
         this.multiplier = Math.pow(m, this.consecutiveLosses);
         this.inRecovery = true;
         const nextStake = Number((this.config.stakeAmount * this.multiplier).toFixed(2));
-        if (this.consecutiveLosses === 2) {
-          this.evenOddCooldownSkipsRemaining = 2;
-          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. 2 consecutive losses — cooldown activated. Next 2 signals skipped. Resumes at $${nextStake.toFixed(2)}.`, "red");
+        if (this.consecutiveLosses >= 2) {
+          // Progressive: each additional loss adds one more skip
+          this.evenOddCooldownSkipsRemaining = this.consecutiveLosses;
+          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. ${this.consecutiveLosses} consecutive losses — cooldown: skipping next ${this.consecutiveLosses} signals (dominance raised to 60%). Resumes at $${nextStake.toFixed(2)}.`, "red");
         } else {
           this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. Next stake: $${nextStake.toFixed(2)} (×${this.multiplier.toFixed(2)}).`, "red");
         }
@@ -1532,9 +1538,10 @@ class ServerBot {
         this.showToast(`WIN! +$${profit.toFixed(2)} [EvenOdd Standard].`, "green");
       } else {
         this.consecutiveLosses += 1;
-        if (this.consecutiveLosses === 2) {
-          this.evenOddCooldownSkipsRemaining = 2;
-          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. 2 consecutive losses — cooldown activated. Next 2 signals will be skipped.`, "red");
+        if (this.consecutiveLosses >= 2) {
+          // Progressive: each additional loss adds one more skip
+          this.evenOddCooldownSkipsRemaining = this.consecutiveLosses;
+          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. ${this.consecutiveLosses} consecutive losses — cooldown: skipping next ${this.consecutiveLosses} signals (dominance raised to 60%).`, "red");
         } else {
           this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. Consecutive losses: ${this.consecutiveLosses}/${this.config.stopLoss}.`, "red");
         }

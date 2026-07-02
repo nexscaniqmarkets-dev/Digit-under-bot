@@ -9,6 +9,7 @@ interface StatsBarProps {
   dailyTradesCount: number;
   consecutiveLosses: number;
   multiplier: number;
+  evenOddCooldownSkipsRemaining?: number;
 }
 
 export default function StatsBar({
@@ -18,6 +19,7 @@ export default function StatsBar({
   dailyTradesCount,
   consecutiveLosses,
   multiplier,
+  evenOddCooldownSkipsRemaining = 0,
 }: StatsBarProps) {
   const underPct = activeSymbolState?.underPct ?? 0;
   const evenPct = activeSymbolState?.evenPct ?? 0;
@@ -69,20 +71,41 @@ export default function StatsBar({
         </p>
       </div>
 
-      {/* Confirmations */}
+      {/* Confirmations (Under) / Streak Tracker (Even/Odd) */}
       <div className="glass-card rounded-xl p-3 flex flex-col gap-2">
-        <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">CONFIRMATIONS</span>
-        <div className="flex items-baseline gap-1" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-          <span className="text-xl font-bold text-[#1e1b16]">{confirmationCounter}</span>
-          <span className="text-[#7f7667] text-base">/</span>
-          <span className="text-[#7f7667] font-bold">{config.confirmationRequired}</span>
-        </div>
-        <div className="w-full h-1 bg-[#e9e1d8] rounded-full overflow-hidden">
-          <div
-            className="h-full bg-[#c5a059] transition-all duration-300"
-            style={{ width: `${(confirmationCounter / config.confirmationRequired) * 100}%` }}
-          />
-        </div>
+        {isEvenOdd ? (
+          <>
+            <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">STREAK TRACKER</span>
+            <div className="flex items-baseline gap-1" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+              <span className="text-xl font-bold text-[#1e1b16]">
+                {activeSymbolState?.evenOddStreakCount ?? 0}
+              </span>
+              <span className="text-[#7f7667] text-base">/</span>
+              <span className="text-[#7f7667] font-bold">3</span>
+            </div>
+            <div className="w-full h-1 bg-[#e9e1d8] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#c5a059] transition-all duration-300"
+                style={{ width: `${Math.min(((activeSymbolState?.evenOddStreakCount ?? 0) / 3) * 100, 100)}%` }}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">CONFIRMATIONS</span>
+            <div className="flex items-baseline gap-1" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+              <span className="text-xl font-bold text-[#1e1b16]">{confirmationCounter}</span>
+              <span className="text-[#7f7667] text-base">/</span>
+              <span className="text-[#7f7667] font-bold">{config.confirmationRequired}</span>
+            </div>
+            <div className="w-full h-1 bg-[#e9e1d8] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#c5a059] transition-all duration-300"
+                style={{ width: `${(confirmationCounter / config.confirmationRequired) * 100}%` }}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Running P&L */}
@@ -100,18 +123,37 @@ export default function StatsBar({
         </div>
       </div>
 
-      {/* Active Stake */}
+      {/* Active Stake (Under) / Stake + Cooldown (Even/Odd) */}
       <div className="glass-card rounded-xl p-3 flex flex-col gap-2">
-        <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">ACTIVE STAKE</span>
-        <div className="text-xl font-bold text-[#1e1b16]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-          ${currentStake.toFixed(2)}
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-[9px] text-[#7f7667] uppercase tracking-wider">Multiplier</span>
-          <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${multiplier > 1 ? "bg-[#ffdad6] text-error" : "bg-[#f5ede4] text-[#4e4639]"}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-            ×{multiplier}
-          </span>
-        </div>
+        {isEvenOdd ? (
+          <>
+            <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">ACTIVE STAKE</span>
+            <div className="text-xl font-bold text-[#1e1b16]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+              ${currentStake.toFixed(2)}
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] text-[#7f7667] uppercase tracking-wider">
+                {evenOddCooldownSkipsRemaining > 0 ? `Cooldown: ${evenOddCooldownSkipsRemaining} skip${evenOddCooldownSkipsRemaining > 1 ? "s" : ""} left` : "Multiplier"}
+              </span>
+              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${evenOddCooldownSkipsRemaining > 0 ? "bg-amber-100 text-amber-700" : multiplier > 1 ? "bg-[#ffdad6] text-error" : "bg-[#f5ede4] text-[#4e4639]"}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                {evenOddCooldownSkipsRemaining > 0 ? "⏸" : `×${multiplier}`}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">ACTIVE STAKE</span>
+            <div className="text-xl font-bold text-[#1e1b16]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+              ${currentStake.toFixed(2)}
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] text-[#7f7667] uppercase tracking-wider">Multiplier</span>
+              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${multiplier > 1 ? "bg-[#ffdad6] text-error" : "bg-[#f5ede4] text-[#4e4639]"}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                ×{multiplier}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Sessions / Bias */}
@@ -124,13 +166,15 @@ export default function StatsBar({
           </div>
           <div className="flex justify-between text-[11px]">
             <span className="text-[#7f7667] uppercase text-[9px]">Loss Streak</span>
-            <span className={`font-bold ${consecutiveLosses > 0 ? "text-error" : "text-[#4e4639]"}`}>{consecutiveLosses} / 5</span>
+            <span className={`font-bold ${consecutiveLosses > 0 ? "text-error" : "text-[#4e4639]"}`}>
+              {consecutiveLosses} / {isEvenOdd ? config.stopLoss : "5"}
+            </span>
           </div>
         </div>
         <div className="w-full h-1 bg-[#e9e1d8] rounded-full overflow-hidden">
           <div
-            className={`h-full transition-all ${consecutiveLosses >= 4 ? "bg-error" : "bg-amber-500"}`}
-            style={{ width: `${(consecutiveLosses / 5) * 100}%` }}
+            className={`h-full transition-all ${consecutiveLosses >= (config.stopLoss - 1) ? "bg-error" : "bg-amber-500"}`}
+            style={{ width: `${(consecutiveLosses / config.stopLoss) * 100}%` }}
           />
         </div>
       </div>

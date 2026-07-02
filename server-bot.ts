@@ -139,6 +139,7 @@ const DEFAULT_CONFIG: BotConfig = {
   evenOddMode: "Standard",
   evenOddDominance: 55,
   evenOddMartingale: 2,
+  evenOddCooldownDominance: 60,
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -1237,7 +1238,7 @@ class ServerBot {
       // Every tick, re-check that the locked pair still qualifies. During cooldown
       // the threshold is raised to 60% for a stronger setup requirement.
       const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
-        ? 60
+        ? (this.config.evenOddCooldownDominance ?? 60)
         : (this.config.evenOddDominance ?? 55);
       const currentDominance = Math.max(state.evenPct, state.oddPct);
       if (currentDominance < dominanceThreshold) {
@@ -1261,7 +1262,7 @@ class ServerBot {
 
         // Re-validate dominance — use raised threshold if still in cooldown
         const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
-          ? 60
+          ? (this.config.evenOddCooldownDominance ?? 60)
           : (this.config.evenOddDominance ?? 55);
         if (this.evenOddCooldownSkipsRemaining > 0) {
           this.evenOddCooldownSkipsRemaining -= 1;
@@ -1293,7 +1294,7 @@ class ServerBot {
     if (this.botState === "STATE_TRADING" || this.awaitingSettlement) return;
 
     const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
-      ? 60  // raised threshold during cooldown
+      ? (this.config.evenOddCooldownDominance ?? 60)  // raised threshold during cooldown
       : (this.config.evenOddDominance ?? 55);
     const minBuffer = this.config.analysisTickCount;
 
@@ -1526,7 +1527,7 @@ class ServerBot {
         if (this.consecutiveLosses >= 2) {
           // Progressive: each additional loss adds one more skip
           this.evenOddCooldownSkipsRemaining = this.consecutiveLosses;
-          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. ${this.consecutiveLosses} consecutive losses — cooldown: skipping next ${this.consecutiveLosses} signals (dominance raised to 60%). Resumes at $${nextStake.toFixed(2)}.`, "red");
+          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. ${this.consecutiveLosses} consecutive losses — cooldown: skipping next ${this.consecutiveLosses} signals (dominance raised to ${this.config.evenOddCooldownDominance ?? 60}%). Resumes at $${nextStake.toFixed(2)}.`, "red");
         } else {
           this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Pro]. Next stake: $${nextStake.toFixed(2)} (×${this.multiplier.toFixed(2)}).`, "red");
         }
@@ -1542,7 +1543,7 @@ class ServerBot {
         if (this.consecutiveLosses >= 2) {
           // Progressive: each additional loss adds one more skip
           this.evenOddCooldownSkipsRemaining = this.consecutiveLosses;
-          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. ${this.consecutiveLosses} consecutive losses — cooldown: skipping next ${this.consecutiveLosses} signals (dominance raised to 60%).`, "red");
+          this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. ${this.consecutiveLosses} consecutive losses — cooldown: skipping next ${this.consecutiveLosses} signals (dominance raised to ${this.config.evenOddCooldownDominance ?? 60}%).`, "red");
         } else {
           this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [EvenOdd Standard]. Consecutive losses: ${this.consecutiveLosses}/${this.config.stopLoss}.`, "red");
         }

@@ -182,6 +182,29 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                       Min even% or odd% required on the selected pair before trading (51–75%). Default: 55%.
                     </p>
                   </div>
+
+                  {/* Cooldown dominance slider — visible for both modes */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">COOLDOWN THRESHOLD</label>
+                      <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {formData.evenOddCooldownDominance ?? 60}%
+                      </span>
+                    </div>
+                    <input
+                      type="range" min={formData.evenOddDominance ?? 55} max="70" disabled={isRunning}
+                      value={formData.evenOddCooldownDominance ?? 60}
+                      onChange={(e) => set("evenOddCooldownDominance", parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                    />
+                    <div className="flex justify-between text-[9px] text-[#7f7667]">
+                      <span>{formData.evenOddDominance ?? 55}% (base)</span>
+                      <span>70% (strict)</span>
+                    </div>
+                    <p className="text-[9px] text-[#7f7667]">
+                      After 2+ consecutive losses, bot requires this higher dominance before re-entering. Default: 60%.
+                    </p>
+                  </div>
                 </>
               )}
             </div>

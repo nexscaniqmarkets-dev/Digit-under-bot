@@ -1090,7 +1090,11 @@ class ServerBot {
       if (readyMarkets >= 5) {
         this.botState = "STATE_SCANNING";
         this.showToast("Historical scanners preloaded. Broker signal lines open.", "green");
-        this.checkAndSwitchSymbol();
+        if (this.config.strategy === "evenodd") {
+          this.selectEvenOddSymbol();
+        } else {
+          this.checkAndSwitchSymbol();
+        }
       }
     }
   }
@@ -1349,11 +1353,13 @@ class ServerBot {
     }
 
     const dominance = direction === "EVEN" ? state.evenPct : state.oddPct;
+    const dominantPct = Math.max(state.evenPct, state.oddPct);
+    const dominantSide = state.evenPct >= state.oddPct ? "EVEN" : "ODD";
     const contractType = direction === "EVEN" ? "DIGITEVEN" : "DIGITODD";
     this.awaitingSettlement = true;
 
     this.showToast(
-      `Order logged: [${contractType}] on ${state.displayName} ($${computedStake.toFixed(2)}) — ${direction} dominance: ${dominance}%`,
+      `Order logged: [${contractType}] on ${state.displayName} ($${computedStake.toFixed(2)}) — ${dominantSide} dominant at ${dominantPct}%, trading ${direction} reversal`,
       "blue"
     );
 
@@ -1554,6 +1560,9 @@ class ServerBot {
   }
 
   private processTradingMachine(symbol: string, symbolStateData: SymbolState) {
+    // Safety guard — should never be called when strategy is evenodd
+    if (this.config.strategy === "evenodd") return;
+
     if (this.botState === "STATE_WARMING_UP") {
       const readyMarkets = Object.values(this.symbolStates).filter(
         s => s.buffer.length >= this.config.analysisTickCount
@@ -1905,6 +1914,9 @@ class ServerBot {
     under_pct: number,
     signal_strength: string
   ) {
+    // Safety guard — even/odd trades must never reach this method
+    if (this.config.strategy === "evenodd") return;
+
     const nextSessionProfit = Number((this.sessionProfit + profit).toFixed(2));
     this.sessionProfit = nextSessionProfit;
     const nextDailyTrades = this.dailyTradesCount + 1;

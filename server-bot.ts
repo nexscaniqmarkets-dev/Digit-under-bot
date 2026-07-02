@@ -593,9 +593,10 @@ class ServerBot {
     }
     this.derivWsUrl = null;
     this.currentUserEmail = null;
-    // Preserve sandboxBalance — never let it reset via DEFAULT_CONFIG
+    // Preserve sandboxBalance and full user config — never wipe strategy/settings on demo connect
     const preservedSandboxBalance = this.sandboxBalance;
-    this.config = { ...DEFAULT_CONFIG, demoBalance: preservedSandboxBalance };
+    const preservedConfig = this.config;
+    this.config = { ...DEFAULT_CONFIG, ...preservedConfig, demoBalance: preservedSandboxBalance };
     this.tradeLogs = [];
 
     this.sessionProfit = 0;
@@ -751,7 +752,7 @@ class ServerBot {
     this.showSummary = false;
     this.sessionStats = null;
 
-    this.showToast("Starting Automated Trading Session...", "green");
+    this.showToast(`Starting Automated Trading Session... Strategy: ${(this.config.strategy ?? "under").toUpperCase()}`, "green");
     tgNotifier.notifyBotStarted(
       this.accountEmail ?? "unknown",
       this.config.mode,

@@ -1295,6 +1295,7 @@ class ServerBot {
     const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
       ? 60  // raised threshold during cooldown
       : (this.config.evenOddDominance ?? 55);
+    const minBuffer = this.config.analysisTickCount;
 
     const candidates = Object.values(this.symbolStates).filter(
       s => Math.max(s.evenPct, s.oddPct) >= dominanceThreshold &&

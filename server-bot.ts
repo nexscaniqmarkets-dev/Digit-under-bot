@@ -705,6 +705,7 @@ class ServerBot {
 
   public updateConfig(newConfig: Partial<BotConfig>) {
     this.config = { ...this.config, ...newConfig };
+    console.log(`[updateConfig] strategy=${this.config.strategy} evenOddMode=${this.config.evenOddMode}`);
     // Enforce default-mode lock: when showAllModes is off, only Split-M Pro Lite and Split-M Pro are allowed
     if (!this.config.showAllModes) {
       const allowedDefaultModes = ["GradualRecoveryProLite", "GradualRecoveryPro"];
@@ -762,9 +763,13 @@ class ServerBot {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.connectWebSocket();
     } else {
-      // If we are already connected, we can instantly switch to STATE_SCANNING since history has already loaded
+      // Already connected — jump straight to scanning using the correct strategy engine
       this.botState = "STATE_SCANNING";
-      this.checkAndSwitchSymbol();
+      if (this.config.strategy === "evenodd") {
+        this.selectEvenOddSymbol();
+      } else {
+        this.checkAndSwitchSymbol();
+      }
     }
   }
 

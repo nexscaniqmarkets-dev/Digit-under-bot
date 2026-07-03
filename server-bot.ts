@@ -1274,15 +1274,17 @@ class ServerBot {
     // If we're locked on this symbol and a pattern signal fired, execute
     if (this.botState === "STATE_CONFIRMING" && this.activeSymbol === symbol) {
       // ── Continuous credibility monitor ─────────────────────────────────────
-      // Every tick, re-check that the locked pair still qualifies. During cooldown
-      // the threshold is raised to 60% for a stronger setup requirement.
       const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
         ? (this.config.evenOddCooldownDominance ?? 60)
         : (this.config.evenOddDominance ?? 55);
-      const currentDominance = Math.max(state.evenPct, state.oddPct);
-      if (currentDominance < dominanceThreshold) {
+      const dirFilter = this.config.evenOddDirection ?? "BOTH";
+      const currentScore = dirFilter === "EVEN" ? state.evenPct
+        : dirFilter === "ODD" ? state.oddPct
+        : Math.max(state.evenPct, state.oddPct);
+
+      if (currentScore < dominanceThreshold) {
         this.showToast(
-          `${state.displayName} dominance fell to ${currentDominance.toFixed(1)}% (need ≥${dominanceThreshold}%). Dropping pair — re-scanning.`,
+          `${state.displayName} ${dirFilter === "BOTH" ? "dominance" : dirFilter + " dominance"} fell to ${currentScore.toFixed(1)}% (need ≥${dominanceThreshold}%). Dropping pair — re-scanning.`,
           "grey"
         );
         this.symbolStates[symbol].evenOddStreakType = null;
@@ -1348,27 +1350,35 @@ class ServerBot {
     if (this.botState === "STATE_TRADING" || this.awaitingSettlement) return;
 
     const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
-      ? (this.config.evenOddCooldownDominance ?? 60)  // raised threshold during cooldown
+      ? (this.config.evenOddCooldownDominance ?? 60)
       : (this.config.evenOddDominance ?? 55);
     const minBuffer = this.config.analysisTickCount;
+    const direction = this.config.evenOddDirection ?? "BOTH";
 
-    const candidates = Object.values(this.symbolStates).filter(
-      s => Math.max(s.evenPct, s.oddPct) >= dominanceThreshold &&
-           s.buffer.length >= minBuffer &&
-           !s.isClosed
-    );
+    // Score each symbol based on the relevant side for the active direction filter
+    const getScore = (s: SymbolState) => {
+      if (direction === "EVEN") return s.evenPct;
+      if (direction === "ODD") return s.oddPct;
+      return Math.max(s.evenPct, s.oddPct); // BOTH
+    };
+
+    const candidates = Object.values(this.symbolStates).filter(s => {
+      if (s.buffer.length < minBuffer || s.isClosed) return false;
+      return getScore(s) >= dominanceThreshold;
+    });
 
     if (candidates.length === 0) {
       if (this.activeSymbol !== null) {
         this.activeSymbol = null;
         this.botState = "STATE_SCANNING";
-        this.showToast("No pairs meet ≥55% even/odd dominance — continuing to scan.", "grey");
+        const sideLabel = direction === "BOTH" ? "even/odd" : direction.toLowerCase();
+        this.showToast(`No pairs meet ≥${dominanceThreshold}% ${sideLabel} dominance — continuing to scan.`, "grey");
       }
       return;
     }
 
-    // Pick the pair with the highest dominance
-    candidates.sort((a, b) => Math.max(b.evenPct, b.oddPct) - Math.max(a.evenPct, a.oddPct));
+    // Pick the pair with the highest score for the active direction
+    candidates.sort((a, b) => getScore(b) - getScore(a));
     const best = candidates[0];
 
     if (best.symbol !== this.activeSymbol) {
@@ -1376,12 +1386,15 @@ class ServerBot {
         this.symbolStates[this.activeSymbol].evenOddStreakCount = 0;
         this.symbolStates[this.activeSymbol].evenOddStreakType = null;
       }
-      this.pendingEvenOddSignal = null; // flush any stale signal from the old symbol
+      this.pendingEvenOddSignal = null;
       this.activeSymbol = best.symbol;
       this.botState = "STATE_CONFIRMING";
-      const dominantSide = best.evenPct >= best.oddPct ? "EVEN" : "ODD";
+      const score = getScore(best);
+      const sideLabel = direction === "BOTH"
+        ? `${best.evenPct >= best.oddPct ? "EVEN" : "ODD"} dominant`
+        : `${direction} dominance`;
       this.showToast(
-        `Locked on ${best.displayName} — ${dominantSide} dominance: ${Math.max(best.evenPct, best.oddPct)}%. Watching for 3-digit pattern…`,
+        `Locked on ${best.displayName} — ${sideLabel}: ${score.toFixed(1)}%. Watching for 3-digit pattern…`,
         "blue"
       );
     }

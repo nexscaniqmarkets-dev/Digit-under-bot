@@ -37,6 +37,7 @@ export interface BotConfig {
   evenOddDominance?: number; // min EVEN%/ODD% dominance required to qualify a pair (default 55)
   evenOddMartingale?: number; // multiplier applied on each loss in Pro mode (default 2)
   evenOddCooldownDominance?: number; // raised dominance threshold during cooldown (default 60)
+  evenOddDirection?: "BOTH" | "EVEN" | "ODD"; // trade direction filter (default BOTH)
   appId: string;
   apiToken: string;
   demoMode: boolean; // if true, simulates virtual trades inside the bot

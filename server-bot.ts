@@ -140,6 +140,7 @@ const DEFAULT_CONFIG: BotConfig = {
   evenOddDominance: 55,
   evenOddMartingale: 2,
   evenOddCooldownDominance: 60,
+  evenOddDirection: "BOTH",
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -1272,6 +1273,21 @@ class ServerBot {
             "grey"
           );
           // Reset streak and re-scan so we catch the next fresh pattern
+          this.symbolStates[symbol].evenOddStreakType = null;
+          this.symbolStates[symbol].evenOddStreakCount = 0;
+          this.activeSymbol = null;
+          this.botState = "STATE_SCANNING";
+          this.selectEvenOddSymbol();
+          return;
+        }
+
+        // Direction filter: skip if signal doesn't match configured direction
+        const dirFilter = this.config.evenOddDirection ?? "BOTH";
+        if (dirFilter !== "BOTH" && sig.direction !== dirFilter) {
+          this.showToast(
+            `Signal skipped — ${sig.direction} trade filtered out (direction locked to ${dirFilter} only). Rescanning.`,
+            "grey"
+          );
           this.symbolStates[symbol].evenOddStreakType = null;
           this.symbolStates[symbol].evenOddStreakCount = 0;
           this.activeSymbol = null;

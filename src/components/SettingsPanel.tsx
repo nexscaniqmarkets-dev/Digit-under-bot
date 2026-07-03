@@ -108,6 +108,32 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
               {/* Even/Odd sub-options */}
               {(formData.strategy ?? "under") === "evenodd" && (
                 <>
+                  {/* Direction Filter */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">TRADE DIRECTION</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { value: "BOTH", label: "BOTH", icon: "swap_horiz", desc: "Even & Odd signals" },
+                        { value: "EVEN", label: "EVEN", icon: "looks_two", desc: "Even signals only" },
+                        { value: "ODD", label: "ODD", icon: "looks_one", desc: "Odd signals only" },
+                      ].map(({ value, label, icon, desc }) => (
+                        <button
+                          key={value} type="button" disabled={isRunning}
+                          onClick={() => set("evenOddDirection", value as any)}
+                          className={`flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl border transition-all cursor-pointer disabled:opacity-40 ${
+                            (formData.evenOddDirection ?? "BOTH") === value
+                              ? "border-[#775a19] bg-[#ffdea5] text-[#4e3700]"
+                              : "border-[#d1c5b4] bg-[#f5ede4] text-[#4e4639] hover:border-[#c5a059]"
+                          }`}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">{icon}</span>
+                          <span className="text-[11px] font-black uppercase tracking-wider">{label}</span>
+                          <span className="text-[9px] opacity-70 text-center leading-tight">{desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">EVEN/ODD MODE</label>
                     <div className="grid grid-cols-2 gap-2">

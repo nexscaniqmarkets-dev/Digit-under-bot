@@ -125,7 +125,7 @@ const USERS_FILE = path.join(process.cwd(), "bot-users-store.json");
 const DEFAULT_CONFIG: BotConfig = {
   stakeAmount: 2.0,
   referenceDigit: 7,
-  analysisTickCount: 120,
+  analysisTickCount: 300,
   minUnderPercentage: 65,
   confirmationRequired: 2,
   tradeSequenceCount: 3,
@@ -141,6 +141,7 @@ const DEFAULT_CONFIG: BotConfig = {
   evenOddMartingale: 2,
   evenOddCooldownDominance: 60,
   evenOddDirection: "BOTH",
+  evenOddMinPatternRate: 55, // minimum pattern win rate % required before locking on a pair
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -1278,15 +1279,27 @@ class ServerBot {
         ? (this.config.evenOddCooldownDominance ?? 60)
         : (this.config.evenOddDominance ?? 55);
       const dirFilter = this.config.evenOddDirection ?? "BOTH";
+      const minPatternRate = this.config.evenOddMinPatternRate ?? 55;
+
       const currentScore = dirFilter === "EVEN" ? state.evenPct
         : dirFilter === "ODD" ? state.oddPct
         : Math.max(state.evenPct, state.oddPct);
 
-      if (currentScore < dominanceThreshold) {
-        this.showToast(
-          `${state.displayName} ${dirFilter === "BOTH" ? "dominance" : dirFilter + " dominance"} fell to ${currentScore.toFixed(1)}% (need ≥${dominanceThreshold}%). Dropping pair — re-scanning.`,
-          "grey"
-        );
+      const totalPatterns = state.parityPatternEven + state.parityPatternOdd;
+      const patternRate = totalPatterns >= 5
+        ? (dirFilter === "EVEN" ? state.parityPatternEven
+          : dirFilter === "ODD" ? state.parityPatternOdd
+          : Math.max(state.parityPatternEven, state.parityPatternOdd)) / totalPatterns * 100
+        : null;
+
+      const dominanceFailed = currentScore < dominanceThreshold;
+      const patternFailed = patternRate !== null && patternRate < minPatternRate;
+
+      if (dominanceFailed || patternFailed) {
+        const reason = dominanceFailed
+          ? `dominance fell to ${currentScore.toFixed(1)}% (need ≥${dominanceThreshold}%)`
+          : `pattern rate fell to ${patternRate!.toFixed(1)}% (need ≥${minPatternRate}%)`;
+        this.showToast(`${state.displayName} ${reason}. Dropping — re-scanning.`, "grey");
         this.symbolStates[symbol].evenOddStreakType = null;
         this.symbolStates[symbol].evenOddStreakCount = 0;
         this.pendingEvenOddSignal = null;
@@ -1354,17 +1367,32 @@ class ServerBot {
       : (this.config.evenOddDominance ?? 55);
     const minBuffer = this.config.analysisTickCount;
     const direction = this.config.evenOddDirection ?? "BOTH";
+    const minPatternRate = this.config.evenOddMinPatternRate ?? 55;
 
-    // Score each symbol based on the relevant side for the active direction filter
+    // Score each symbol based on direction filter
     const getScore = (s: SymbolState) => {
       if (direction === "EVEN") return s.evenPct;
       if (direction === "ODD") return s.oddPct;
-      return Math.max(s.evenPct, s.oddPct); // BOTH
+      return Math.max(s.evenPct, s.oddPct);
+    };
+
+    // Pattern win rate: how often reversal patterns flipped to the relevant direction
+    const getPatternRate = (s: SymbolState) => {
+      const total = s.parityPatternEven + s.parityPatternOdd;
+      if (total === 0) return null;
+      if (direction === "EVEN") return (s.parityPatternEven / total) * 100;
+      if (direction === "ODD") return (s.parityPatternOdd / total) * 100;
+      return (Math.max(s.parityPatternEven, s.parityPatternOdd) / total) * 100;
     };
 
     const candidates = Object.values(this.symbolStates).filter(s => {
       if (s.buffer.length < minBuffer || s.isClosed) return false;
-      return getScore(s) >= dominanceThreshold;
+      if (getScore(s) < dominanceThreshold) return false;
+      const patternRate = getPatternRate(s);
+      // Only apply pattern rate filter if we have enough pattern data (≥5 patterns)
+      const totalPatterns = s.parityPatternEven + s.parityPatternOdd;
+      if (totalPatterns >= 5 && patternRate !== null && patternRate < minPatternRate) return false;
+      return true;
     });
 
     if (candidates.length === 0) {
@@ -1372,13 +1400,20 @@ class ServerBot {
         this.activeSymbol = null;
         this.botState = "STATE_SCANNING";
         const sideLabel = direction === "BOTH" ? "even/odd" : direction.toLowerCase();
-        this.showToast(`No pairs meet ≥${dominanceThreshold}% ${sideLabel} dominance — continuing to scan.`, "grey");
+        this.showToast(`No pairs meet ≥${dominanceThreshold}% ${sideLabel} dominance + ≥${minPatternRate}% pattern rate — scanning.`, "grey");
       }
       return;
     }
 
-    // Pick the pair with the highest score for the active direction
-    candidates.sort((a, b) => getScore(b) - getScore(a));
+    // Sort by combined score: dominance + pattern rate weighted equally
+    candidates.sort((a, b) => {
+      const aPattern = getPatternRate(a) ?? minPatternRate;
+      const bPattern = getPatternRate(b) ?? minPatternRate;
+      const aTotal = (getScore(a) + aPattern) / 2;
+      const bTotal = (getScore(b) + bPattern) / 2;
+      return bTotal - aTotal;
+    });
+
     const best = candidates[0];
 
     if (best.symbol !== this.activeSymbol) {
@@ -1390,11 +1425,12 @@ class ServerBot {
       this.activeSymbol = best.symbol;
       this.botState = "STATE_CONFIRMING";
       const score = getScore(best);
+      const patternRate = getPatternRate(best);
       const sideLabel = direction === "BOTH"
         ? `${best.evenPct >= best.oddPct ? "EVEN" : "ODD"} dominant`
         : `${direction} dominance`;
       this.showToast(
-        `Locked on ${best.displayName} — ${sideLabel}: ${score.toFixed(1)}%. Watching for 3-digit pattern…`,
+        `Locked on ${best.displayName} — ${sideLabel}: ${score.toFixed(1)}%${patternRate !== null ? `, pattern rate: ${patternRate.toFixed(1)}%` : ""}. Watching for 3-digit pattern…`,
         "blue"
       );
     }

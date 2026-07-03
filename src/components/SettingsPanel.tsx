@@ -231,6 +231,30 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                       After 2+ consecutive losses, bot requires this higher dominance before re-entering. Default: 60%.
                     </p>
                   </div>
+
+                  {/* Min pattern win rate */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">MIN PATTERN WIN RATE</label>
+                      <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {formData.evenOddMinPatternRate ?? 55}%
+                      </span>
+                    </div>
+                    <input
+                      type="range" min="50" max="75" disabled={isRunning}
+                      value={formData.evenOddMinPatternRate ?? 55}
+                      onChange={(e) => set("evenOddMinPatternRate", parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                    />
+                    <div className="flex justify-between text-[9px] text-[#7f7667]">
+                      <span>50% (relaxed)</span>
+                      <span>55% (default)</span>
+                      <span>75% (strict)</span>
+                    </div>
+                    <p className="text-[9px] text-[#7f7667]">
+                      Minimum historical reversal pattern win rate on a pair before the bot locks on. Requires ≥5 patterns to activate. Default: 55%.
+                    </p>
+                  </div>
                 </>
               )}
             </div>

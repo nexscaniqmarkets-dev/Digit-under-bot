@@ -1243,52 +1243,6 @@ class ServerBot {
 
   // ─── Even/Odd Strategy Engine ─────────────────────────────────────────────
 
-  /**
-   * Main tick dispatch for the even/odd strategy.
-   * Called every tick instead of processTradingMachine when strategy === "evenodd".
-   */
-  /**
-   * Scan a digit buffer for all exact-3 same-parity streaks followed by a flip.
-   * Returns win rates for EVEN and ODD trades based on historical patterns in the buffer.
-   */
-  private computeParityBacktest(buffer: number[]): {
-    evenWinRate: number | null; evenCount: number;
-    oddWinRate: number | null; oddCount: number;
-  } {
-    let evenSignals = 0, evenWins = 0;
-    let oddSignals = 0, oddWins = 0;
-
-    for (let i = 0; i < buffer.length - 3; i++) {
-      const p0: "EVEN" | "ODD" = buffer[i] % 2 === 0 ? "EVEN" : "ODD";
-      const p1: "EVEN" | "ODD" = buffer[i + 1] % 2 === 0 ? "EVEN" : "ODD";
-      const p2: "EVEN" | "ODD" = buffer[i + 2] % 2 === 0 ? "EVEN" : "ODD";
-      const p3: "EVEN" | "ODD" = buffer[i + 3] % 2 === 0 ? "EVEN" : "ODD";
-
-      // Exactly 3 same-parity then a flip
-      if (p0 === p1 && p1 === p2 && p2 !== p3) {
-        // Check digit before i is not the same parity (ensures exactly 3, not 4+)
-        if (i === 0 || (buffer[i - 1] % 2 === 0 ? "EVEN" : "ODD") !== p0) {
-          if (p0 === "EVEN") {
-            // 3 EVEN then ODD flip → bot would trade ODD
-            oddSignals++;
-            if (p3 === "ODD") oddWins++;
-          } else {
-            // 3 ODD then EVEN flip → bot would trade EVEN
-            evenSignals++;
-            if (p3 === "EVEN") evenWins++;
-          }
-        }
-      }
-    }
-
-    return {
-      evenWinRate: evenSignals > 0 ? Number(((evenWins / evenSignals) * 100).toFixed(1)) : null,
-      evenCount: evenSignals,
-      oddWinRate: oddSignals > 0 ? Number(((oddWins / oddSignals) * 100).toFixed(1)) : null,
-      oddCount: oddSignals,
-    };
-  }
-
   private processEvenOddMachine(symbol: string, state: SymbolState) {
     // Warmup: wait until at least 5 markets have enough tick history
     if (this.botState === "STATE_WARMING_UP") {

@@ -227,7 +227,8 @@ export default function App() {
                   config={config} botState={botState} activeSymbol={activeSymbol}
                   activeSymbolState={activeSymbolState} sessionProfit={sessionProfit}
                   dailyTradesCount={dailyTradesCount} consecutiveLosses={consecutiveLosses}
-                  multiplier={multiplier}
+                  multiplier={multiplier} evenOddCooldownSkipsRemaining={evenOddCooldownSkipsRemaining}
+                  tradeLogs={tradeLogs}
                 />
               </div>
             )}

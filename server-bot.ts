@@ -651,7 +651,9 @@ class ServerBot {
         lastTickTime: 0,
         isClosed: false,
         evenOddStreakType: null,
-        evenOddStreakCount: 0
+        evenOddStreakCount: 0,
+        parityPatternEven: 0,
+        parityPatternOdd: 0
       };
     });
     this.symbolStates = initialStates;
@@ -1171,6 +1173,11 @@ class ServerBot {
 
     const isQualified = underPct >= this.config.minUnderPercentage && bufferLength >= maxCapacity;
 
+    // Live parity backtest — only computed for even/odd strategy to avoid unnecessary work
+    const parityBacktest = this.config.strategy === "evenodd"
+      ? this.computeParityBacktest(updatedBuffer)
+      : { even: 0, odd: 0 };
+
     const updatedState: SymbolState = {
       ...sState,
       buffer: updatedBuffer,
@@ -1180,6 +1187,8 @@ class ServerBot {
       oddPct,
       evenOddStreakType: nextStreakType,
       evenOddStreakCount: nextStreakCount,
+      parityPatternEven: parityBacktest.even,
+      parityPatternOdd: parityBacktest.odd,
       signalStrength: strength,
       digitFreq: digitCounts,
       digitPct: digitPercentages,
@@ -1199,12 +1208,87 @@ class ServerBot {
     }
   }
 
+  /**
+   * Scans the digit buffer for all completed "exactly 3 consecutive same-parity → flip"
+   * patterns and tallies which direction (EVEN/ODD) the flip went.
+   * Returns { even, odd } counts.
+   */
+  private computeParityBacktest(buffer: number[]): { even: number; odd: number } {
+    let even = 0, odd = 0;
+    if (buffer.length < 4) return { even, odd };
+
+    let streakType: "EVEN" | "ODD" | null = null;
+    let streakCount = 0;
+
+    for (let i = 0; i < buffer.length; i++) {
+      const parity: "EVEN" | "ODD" = buffer[i] % 2 === 0 ? "EVEN" : "ODD";
+
+      if (streakType === null) {
+        streakType = parity;
+        streakCount = 1;
+      } else if (parity === streakType) {
+        streakCount++;
+      } else {
+        // Streak broke — check if it was exactly 3
+        if (streakCount === 3) {
+          if (parity === "EVEN") even++;
+          else odd++;
+        }
+        streakType = parity;
+        streakCount = 1;
+      }
+    }
+    return { even, odd };
+  }
+
   // ─── Even/Odd Strategy Engine ─────────────────────────────────────────────
 
   /**
    * Main tick dispatch for the even/odd strategy.
    * Called every tick instead of processTradingMachine when strategy === "evenodd".
    */
+  /**
+   * Scan a digit buffer for all exact-3 same-parity streaks followed by a flip.
+   * Returns win rates for EVEN and ODD trades based on historical patterns in the buffer.
+   */
+  private computeParityBacktest(buffer: number[]): {
+    evenWinRate: number | null; evenCount: number;
+    oddWinRate: number | null; oddCount: number;
+  } {
+    let evenSignals = 0, evenWins = 0;
+    let oddSignals = 0, oddWins = 0;
+
+    for (let i = 0; i < buffer.length - 3; i++) {
+      const p0: "EVEN" | "ODD" = buffer[i] % 2 === 0 ? "EVEN" : "ODD";
+      const p1: "EVEN" | "ODD" = buffer[i + 1] % 2 === 0 ? "EVEN" : "ODD";
+      const p2: "EVEN" | "ODD" = buffer[i + 2] % 2 === 0 ? "EVEN" : "ODD";
+      const p3: "EVEN" | "ODD" = buffer[i + 3] % 2 === 0 ? "EVEN" : "ODD";
+
+      // Exactly 3 same-parity then a flip
+      if (p0 === p1 && p1 === p2 && p2 !== p3) {
+        // Check digit before i is not the same parity (ensures exactly 3, not 4+)
+        if (i === 0 || (buffer[i - 1] % 2 === 0 ? "EVEN" : "ODD") !== p0) {
+          if (p0 === "EVEN") {
+            // 3 EVEN then ODD flip → bot would trade ODD
+            oddSignals++;
+            if (p3 === "ODD") oddWins++;
+          } else {
+            // 3 ODD then EVEN flip → bot would trade EVEN
+            evenSignals++;
+            if (p3 === "EVEN") evenWins++;
+          }
+        }
+      }
+    }
+
+    return {
+      evenWinRate: evenSignals > 0 ? Number(((evenWins / evenSignals) * 100).toFixed(1)) : null,
+      evenCount: evenSignals,
+      oddWinRate: oddSignals > 0 ? Number(((oddWins / oddSignals) * 100).toFixed(1)) : null,
+      oddCount: oddSignals,
+    };
+  }
+
   private processEvenOddMachine(symbol: string, state: SymbolState) {
     // Warmup: wait until at least 5 markets have enough tick history
     if (this.botState === "STATE_WARMING_UP") {

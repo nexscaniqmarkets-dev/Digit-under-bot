@@ -228,7 +228,6 @@ export default function App() {
                   activeSymbolState={activeSymbolState} sessionProfit={sessionProfit}
                   dailyTradesCount={dailyTradesCount} consecutiveLosses={consecutiveLosses}
                   multiplier={multiplier} evenOddCooldownSkipsRemaining={evenOddCooldownSkipsRemaining}
-                  tradeLogs={tradeLogs}
                 />
               </div>
             )}

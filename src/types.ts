@@ -74,6 +74,14 @@ export interface SymbolState {
   // Even/Odd strategy: tracks the current live run of consecutive same-parity digits
   evenOddStreakType: "EVEN" | "ODD" | null;
   evenOddStreakCount: number;
+  // Live parity backtest — how many 3-streak reversals in the buffer went EVEN vs ODD
+  parityPatternEven: number;  // count of patterns where flip was EVEN
+  parityPatternOdd: number;   // count of patterns where flip was ODD
+  // Live parity backtest: win rates computed from buffer patterns (updated every tick)
+  evenPatternWinRate: number | null; // % of 3-even→odd patterns where odd actually followed
+  oddPatternWinRate: number | null;  // % of 3-odd→even patterns where even actually followed
+  evenPatternCount: number; // total qualifying patterns found in buffer
+  oddPatternCount: number;
 }
 
 export interface TradeLog {

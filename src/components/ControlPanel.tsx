@@ -1,4 +1,4 @@
-import { SYMBOLS, BotState, BotConfig } from "../types";
+import { SYMBOLS, BotState, BotConfig, SymbolState } from "../types";
 
 interface ControlPanelProps {
   botState: BotState;
@@ -12,6 +12,7 @@ interface ControlPanelProps {
   connectionStatus: "disconnected" | "connecting" | "connected";
   reconnectCountdown: number | null;
   evenOddCooldownSkipsRemaining?: number;
+  symbolStates?: Record<string, SymbolState>;
 }
 
 export default function ControlPanel({
@@ -24,8 +25,26 @@ export default function ControlPanel({
   connectionStatus,
   reconnectCountdown,
   evenOddCooldownSkipsRemaining = 0,
+  symbolStates = {},
 }: ControlPanelProps) {
   const isRunning = botState !== "STATE_IDLE" && botState !== "STATE_STOPPED";
+
+  // Warmup progress computation
+  const QUALIFYING_TICKS = (config.strategy ?? "under") === "evenodd" ? 120 : config.analysisTickCount;
+  const TOTAL_PAIRS = 13;
+  const allBufferLengths = Object.values(symbolStates).map(s => s.buffer.length);
+  const readyPairs = allBufferLengths.filter(l => l >= QUALIFYING_TICKS).length;
+  const maxBuffer = allBufferLengths.length > 0 ? Math.max(...allBufferLengths) : 0;
+  const warmupPct = Math.min(Math.round((maxBuffer / QUALIFYING_TICKS) * 100), 100);
+  const ticksRemaining = Math.max(QUALIFYING_TICKS - maxBuffer, 0);
+  const secsRemaining = ticksRemaining; // ~1 tick/sec for 1s indices
+  const warmupMins = Math.floor(secsRemaining / 60);
+  const warmupSecs = secsRemaining % 60;
+  const warmupTimeStr = secsRemaining > 0
+    ? warmupMins > 0
+      ? `~${warmupMins}m ${warmupSecs}s remaining`
+      : `~${warmupSecs}s remaining`
+    : "Almost ready…";
 
   const handleModeChange = (
     mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite" | "GradualRecoveryProLite"
@@ -44,7 +63,7 @@ export default function ControlPanel({
       case "STATE_CONNECTING":
         return { text: "WS CONNECTING", sub: reconnectCountdown !== null ? `Reconnecting in ${reconnectCountdown}s…` : "Establishing secure link to Broker Services…", dot: "bg-amber-500 pulsing-dot", color: "text-amber-700", bg: "bg-amber-50", border: "border-amber-200" };
       case "STATE_WARMING_UP":
-        return { text: "WARMING UP CHANNELS", sub: "Populating tick buffers for 13 markets (min. 120 each)…", dot: "bg-[#775a19] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#fff8e8]", border: "border-[#d1c5b4]" };
+        return { text: "WARMING UP", sub: `${readyPairs}/${TOTAL_PAIRS} pairs ready · ${warmupTimeStr}`, dot: "bg-[#775a19] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#fff8e8]", border: "border-[#d1c5b4]", warmup: true };
       case "STATE_SCANNING":
         return evenOddCooldownSkipsRemaining > 0 && (config.strategy ?? "under") === "evenodd"
           ? { text: "COOLDOWN ACTIVE", sub: `Observing next ${evenOddCooldownSkipsRemaining} qualifying signal${evenOddCooldownSkipsRemaining > 1 ? "s" : ""} before resuming trades…`, dot: "bg-[#7f7667] pulsing-dot", color: "text-[#4e4639]", bg: "bg-[#e9e1d8]/50", border: "border-[#d1c5b4]" }
@@ -236,12 +255,28 @@ export default function ControlPanel({
         )}
 
         {/* Status bar */}
-        <div className={`flex items-center gap-3 p-3.5 rounded-xl border ${status.bg} ${status.border}`}>
-          <div className={`w-2 h-2 rounded-full shrink-0 ${status.dot}`} />
-          <div>
-            <div className={`text-[10px] font-black uppercase tracking-[0.12em] ${status.color}`}>{status.text}</div>
-            <div className="text-[11px] text-[#4e4639] mt-0.5 leading-snug font-medium">{status.sub}</div>
+        <div className={`flex flex-col gap-2 p-3.5 rounded-xl border ${status.bg} ${status.border}`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-2 h-2 rounded-full shrink-0 ${status.dot}`} />
+            <div className="flex-1">
+              <div className={`text-[10px] font-black uppercase tracking-[0.12em] ${status.color}`}>{status.text}</div>
+              <div className="text-[11px] text-[#4e4639] mt-0.5 leading-snug font-medium">{status.sub}</div>
+            </div>
           </div>
+          {botState === "STATE_WARMING_UP" && (
+            <div className="flex flex-col gap-1.5 mt-0.5">
+              <div className="w-full h-1.5 bg-[#e9e1d8] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#c5a059] transition-all duration-500 rounded-full"
+                  style={{ width: `${warmupPct}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[9px] text-[#7f7667]">
+                <span>{warmupPct}% complete</span>
+                <span>{readyPairs}/{TOTAL_PAIRS} pairs ready</span>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

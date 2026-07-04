@@ -222,6 +222,7 @@ export default function App() {
                   inspectSymbol={inspectSymbol} setInspectSymbol={setInspectSymbol}
                   connectionStatus={connectionStatus} reconnectCountdown={reconnectCountdown}
                   evenOddCooldownSkipsRemaining={evenOddCooldownSkipsRemaining}
+                  symbolStates={symbolStates}
                 />
                 <StatsBar
                   config={config} botState={botState} activeSymbol={activeSymbol}

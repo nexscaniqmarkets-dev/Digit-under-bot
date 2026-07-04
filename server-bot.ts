@@ -1286,9 +1286,16 @@ class ServerBot {
       const dirFilter = this.config.evenOddDirection ?? "BOTH";
       const minPatternRate = this.config.evenOddMinPatternRate ?? 55;
 
-      const currentScore = dirFilter === "EVEN" ? state.evenPct
-        : dirFilter === "ODD" ? state.oddPct
-        : Math.max(state.evenPct, state.oddPct);
+      const currentScore = (() => {
+        if (dirFilter === "BOTH") return Math.max(state.evenPct, state.oddPct);
+        const total = state.parityPatternEven + state.parityPatternOdd;
+        if (total >= 5) {
+          return dirFilter === "EVEN"
+            ? (state.parityPatternEven / total) * 100
+            : (state.parityPatternOdd / total) * 100;
+        }
+        return dirFilter === "EVEN" ? state.evenPct : state.oddPct;
+      })();
 
       const totalPatterns = state.parityPatternEven + state.parityPatternOdd;
       const patternRate = totalPatterns >= 5
@@ -1374,11 +1381,21 @@ class ServerBot {
     const direction = this.config.evenOddDirection ?? "BOTH";
     const minPatternRate = this.config.evenOddMinPatternRate ?? 55;
 
-    // Score each symbol based on direction filter
+    // Score each symbol based on direction filter.
+    // For directional modes (EVEN/ODD), use the pattern win rate as primary score
+    // since that directly measures how often reversals flip to the desired direction.
+    // For BOTH mode, use raw dominance as before.
     const getScore = (s: SymbolState) => {
-      if (direction === "EVEN") return s.evenPct;
-      if (direction === "ODD") return s.oddPct;
-      return Math.max(s.evenPct, s.oddPct);
+      if (direction === "BOTH") return Math.max(s.evenPct, s.oddPct);
+      const total = s.parityPatternEven + s.parityPatternOdd;
+      if (total >= 5) {
+        // Use pattern win rate as primary score
+        return direction === "EVEN"
+          ? (s.parityPatternEven / total) * 100
+          : (s.parityPatternOdd / total) * 100;
+      }
+      // Not enough patterns yet — fall back to raw directional pct
+      return direction === "EVEN" ? s.evenPct : s.oddPct;
     };
 
     // Pattern win rate: how often reversal patterns flipped to the relevant direction
@@ -1392,9 +1409,24 @@ class ServerBot {
 
     const candidates = Object.values(this.symbolStates).filter(s => {
       if (s.buffer.length < minBuffer || s.isClosed) return false;
-      if (getScore(s) < dominanceThreshold) return false;
+      const total = s.parityPatternEven + s.parityPatternOdd;
+      const hasPatternData = total >= 5;
+
+      if (direction === "BOTH") {
+        // BOTH: use raw dominance threshold
+        if (Math.max(s.evenPct, s.oddPct) < dominanceThreshold) return false;
+      } else {
+        // Directional: use pattern rate if available, else raw directional pct
+        const directionalPct = direction === "EVEN" ? s.evenPct : s.oddPct;
+        const patternRatePct = hasPatternData
+          ? (direction === "EVEN" ? s.parityPatternEven : s.parityPatternOdd) / total * 100
+          : null;
+        const effectiveScore = patternRatePct ?? directionalPct;
+        if (effectiveScore < dominanceThreshold) return false;
+      }
+
+      // Pattern rate filter (only when enough data exists)
       const patternRate = getPatternRate(s);
-      // Only apply pattern rate filter if we have enough pattern data (≥5 patterns)
       const totalPatterns = s.parityPatternEven + s.parityPatternOdd;
       if (totalPatterns >= 5 && patternRate !== null && patternRate < minPatternRate) return false;
       return true;

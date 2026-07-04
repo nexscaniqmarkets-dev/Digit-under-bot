@@ -10,6 +10,9 @@ interface LeaderboardProps {
 
 export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol, setInspectSymbol, config }: LeaderboardProps) {
   const capacity = config.analysisTickCount;
+  const isEvenOddStrategy = (config.strategy ?? "under") === "evenodd";
+  // Even/Odd uses a lower qualifying threshold (120) so pairs show data sooner
+  const qualifyingTicks = isEvenOddStrategy ? 120 : capacity;
 
   const symbolList = SYMBOLS.map(({ symbol, name }) => {
     const s = symbolStates[symbol];
@@ -20,7 +23,7 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
   const isEvenOdd = (config.strategy ?? "under") === "evenodd";
 
   const sorted = [...symbolList].sort((a, b) => {
-    const aW = a.buffer.length >= capacity, bW = b.buffer.length >= capacity;
+    const aW = a.buffer.length >= qualifyingTicks, bW = b.buffer.length >= qualifyingTicks;
     const aScore = isEvenOdd ? Math.max((a as any).evenPct ?? 0, (a as any).oddPct ?? 0) : a.underPct;
     const bScore = isEvenOdd ? Math.max((b as any).evenPct ?? 0, (b as any).oddPct ?? 0) : b.underPct;
     if (aW && bW) return bScore - aScore;
@@ -84,7 +87,7 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
           {sorted.map((sym) => {
             const isActive = activeSymbol === sym.symbol;
             const isSelected = inspectSymbol === sym.symbol;
-            const isWarmed = sym.buffer.length >= capacity;
+            const isWarmed = sym.buffer.length >= qualifyingTicks;
             const pe = (sym as any).parityPatternEven ?? 0;
             const po = (sym as any).parityPatternOdd ?? 0;
             const eRate = getParityRate(pe, po, "EVEN");
@@ -114,7 +117,7 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
                     </span>
                   </div>
                   {!isWarmed && sym.buffer.length > 0 && (
-                    <div className="text-[8px] text-[#7f7667]">{sym.buffer.length}/{capacity}</div>
+                    <div className="text-[8px] text-[#7f7667]">{sym.buffer.length}/{qualifyingTicks}</div>
                   )}
                 </td>
 

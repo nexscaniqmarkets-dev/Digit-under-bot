@@ -148,6 +148,11 @@ const DEFAULT_CONFIG: BotConfig = {
   demoBalance: 10000.00
 };
 
+// Even/Odd: minimum ticks before a pair qualifies for selection.
+// Separate from analysisTickCount (300 buffer) so trading starts after ~2 min
+// while pattern analysis improves as the full 300-tick buffer fills up.
+const EVENODD_MIN_QUALIFYING_TICKS = 120;
+
 class ServerBot {
   private config: BotConfig = { ...DEFAULT_CONFIG };
   private botState: BotState = "STATE_IDLE";
@@ -1248,7 +1253,7 @@ class ServerBot {
     // Warmup: wait until at least 5 markets have enough tick history
     if (this.botState === "STATE_WARMING_UP") {
       const readyCount = Object.values(this.symbolStates).filter(
-        s => s.buffer.length >= this.config.analysisTickCount
+        s => s.buffer.length >= EVENODD_MIN_QUALIFYING_TICKS
       ).length;
       if (readyCount >= 5) {
         this.botState = "STATE_SCANNING";
@@ -1365,7 +1370,7 @@ class ServerBot {
     const dominanceThreshold = this.evenOddCooldownSkipsRemaining > 0
       ? (this.config.evenOddCooldownDominance ?? 60)
       : (this.config.evenOddDominance ?? 55);
-    const minBuffer = this.config.analysisTickCount;
+    const minBuffer = EVENODD_MIN_QUALIFYING_TICKS;
     const direction = this.config.evenOddDirection ?? "BOTH";
     const minPatternRate = this.config.evenOddMinPatternRate ?? 55;
 

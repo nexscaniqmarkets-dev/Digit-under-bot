@@ -72,8 +72,8 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
             {isEvenOdd ? (
               <>
                 <th className="px-1 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.08em] text-center">Sig</th>
-                <th className="px-1 py-2 text-[9px] font-bold text-[#775a19] uppercase tracking-[0.08em] text-right">E%</th>
-                <th className="px-1 py-2 text-[9px] font-bold text-[#7f7667] uppercase tracking-[0.08em] text-right">O%</th>
+                <th className="px-1 py-2 text-[9px] font-bold text-[#775a19] uppercase tracking-[0.08em] text-right">E-Pat</th>
+                <th className="px-1 py-2 text-[9px] font-bold text-[#7f7667] uppercase tracking-[0.08em] text-right">O-Pat</th>
               </>
             ) : (
               <>

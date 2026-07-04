@@ -193,7 +193,7 @@ export default function StatsBar({
       {isEvenOdd && (
         <div className="glass-card rounded-xl p-4 flex flex-col gap-3 col-span-2">
           <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">PARITY PERFORMANCE</span>
+            <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">PATTERN WIN RATE</span>
             {betterSide && (
               <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#ffdea5] text-[#775a19] border border-[#c5a059] uppercase tracking-wider">
                 {betterSide} leading

@@ -141,7 +141,11 @@ const DEFAULT_CONFIG: BotConfig = {
   evenOddMartingale: 2,
   evenOddCooldownDominance: 60,
   evenOddDirection: "BOTH",
-  evenOddMinPatternRate: 55, // minimum pattern win rate % required before locking on a pair
+  evenOddMinPatternRate: 55,
+  digitMatchMartingale: false,
+  digitMatchMartingaleMultiplier: 1.5,
+  digitMatchMartingaleMaxSteps: 5,
+  digitMatchConsecLossLimit: 4, // minimum pattern win rate % required before locking on a pair
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -185,6 +189,10 @@ class ServerBot {
   private reconnectCountdown: number | null = null;
   // Even/Odd cooldown: after 2 consecutive losses, skip the next 2 qualifying signals
   private evenOddCooldownSkipsRemaining: number = 0;
+  // Digit Match: martingale step tracking
+  private dmMartingaleStep: number = 0;
+  private dmConsecLosses: number = 0;
+  private dmPendingSignal: { symbol: string; dominantDigit: number; triggerDigit: number; confidence: number; qualityScore: number } | null = null;
 
   private symbolStates: Record<string, SymbolState> = {};
   private tradeLogs: TradeLog[] = [];
@@ -559,6 +567,9 @@ class ServerBot {
     this.pendingRealContract = null;
     this.pendingVirtualContract = null;
     this.pendingEvenOddSignal = null;
+    this.dmPendingSignal = null;
+    this.dmMartingaleStep = 0;
+    this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
 
@@ -623,6 +634,9 @@ class ServerBot {
     this.pendingRealContract = null;
     this.pendingVirtualContract = null;
     this.pendingEvenOddSignal = null;
+    this.dmPendingSignal = null;
+    this.dmMartingaleStep = 0;
+    this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
 
@@ -659,7 +673,20 @@ class ServerBot {
         evenOddStreakType: null,
         evenOddStreakCount: 0,
         parityPatternEven: 0,
-        parityPatternOdd: 0
+        parityPatternOdd: 0,
+        evenPatternWinRate: null,
+        oddPatternWinRate: null,
+        evenPatternCount: 0,
+        oddPatternCount: 0,
+        dmDominantDigit: null,
+        dmTriggerDigit: null,
+        dmConfidence: 0,
+        dmTradeQualityScore: 0,
+        dmSignalReady: false,
+        dmTieDetected: false,
+        dmMarketStability: null,
+        dmRiskLevel: null,
+        dmDominantHistory: []
       };
     });
     this.symbolStates = initialStates;
@@ -682,6 +709,8 @@ class ServerBot {
       multiplier: this.multiplier,
       inRecovery: this.inRecovery,
       evenOddCooldownSkipsRemaining: this.evenOddCooldownSkipsRemaining,
+      dmMartingaleStep: this.dmMartingaleStep,
+      dmConsecLosses: this.dmConsecLosses,
       sequenceDone: this.sequenceDone,
       awaitingSettlement: this.awaitingSettlement,
       connectionStatus: this.connectionStatus,
@@ -760,6 +789,9 @@ class ServerBot {
     this.pendingRealContract = null;
     this.pendingVirtualContract = null;
     this.pendingEvenOddSignal = null;
+    this.dmPendingSignal = null;
+    this.dmMartingaleStep = 0;
+    this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
 
@@ -777,6 +809,8 @@ class ServerBot {
       this.botState = "STATE_SCANNING";
       if (this.config.strategy === "evenodd") {
         this.selectEvenOddSymbol();
+      } else if (this.config.strategy === "digitmatch") {
+        this.selectDigitMatchSymbol();
       } else {
         this.checkAndSwitchSymbol();
       }
@@ -1102,6 +1136,8 @@ class ServerBot {
         this.showToast("Historical scanners preloaded. Broker signal lines open.", "green");
         if (this.config.strategy === "evenodd") {
           this.selectEvenOddSymbol();
+        } else if (this.config.strategy === "digitmatch") {
+          this.selectDigitMatchSymbol();
         } else {
           this.checkAndSwitchSymbol();
         }
@@ -1184,6 +1220,62 @@ class ServerBot {
       ? this.computeParityBacktest(updatedBuffer)
       : { even: 0, odd: 0 };
 
+    // Digit Match: compute smart analysis every tick for all symbols
+    let dmFields: Pick<SymbolState, "dmDominantDigit" | "dmTriggerDigit" | "dmConfidence" | "dmTradeQualityScore" | "dmSignalReady" | "dmTieDetected" | "dmMarketStability" | "dmRiskLevel" | "dmDominantHistory"> = {
+      dmDominantDigit: sState.dmDominantDigit,
+      dmTriggerDigit: sState.dmTriggerDigit,
+      dmConfidence: sState.dmConfidence,
+      dmTradeQualityScore: sState.dmTradeQualityScore,
+      dmSignalReady: false,
+      dmTieDetected: sState.dmTieDetected,
+      dmMarketStability: sState.dmMarketStability,
+      dmRiskLevel: sState.dmRiskLevel,
+      dmDominantHistory: sState.dmDominantHistory ?? []
+    };
+
+    if (updatedBuffer.length >= 15 && this.config.strategy === "digitmatch") {
+      const dmAnalysis = this.calculateDigitMatchAnalysis(updatedBuffer);
+      const prevHistory = (sState.dmDominantHistory ?? []).slice(-4);
+      const newHistory = [...prevHistory, dmAnalysis.dominantDigit];
+
+      // Signal rules: confidence ≥22%, stable dominant for last 3 cycles, no conflict in last 5, not uniform
+      const last3 = newHistory.slice(-3);
+      const last5 = newHistory.slice(-5);
+      const ruleConfidence = dmAnalysis.confidence >= 22;
+      const ruleStable3 = last3.length >= 3 && last3.every(d => d === dmAnalysis.dominantDigit);
+      const ruleNotUniform = dmAnalysis.tradeQualityScore > 10;
+      const ruleNoConflict5 = last5.every(d => d === dmAnalysis.dominantDigit || d === null);
+      const signalReady = ruleConfidence && ruleStable3 && ruleNotUniform && ruleNoConflict5;
+
+      // Tie detection
+      const tieDetected = this.checkDigitTie(updatedBuffer);
+
+      dmFields = {
+        dmDominantDigit: dmAnalysis.dominantDigit,
+        dmTriggerDigit: dmAnalysis.triggerDigit,
+        dmConfidence: dmAnalysis.confidence,
+        dmTradeQualityScore: dmAnalysis.tradeQualityScore,
+        dmSignalReady: signalReady && !tieDetected,
+        dmTieDetected: tieDetected,
+        dmMarketStability: dmAnalysis.marketStability,
+        dmRiskLevel: dmAnalysis.riskLevel,
+        dmDominantHistory: newHistory
+      };
+
+      // If signal just fired on the active symbol, store it for processDigitMatchMachine
+      if (signalReady && !tieDetected && this.activeSymbol === symbol && this.botState === "STATE_CONFIRMING") {
+        if (!this.dmPendingSignal) {
+          this.dmPendingSignal = {
+            symbol,
+            dominantDigit: dmAnalysis.dominantDigit,
+            triggerDigit: dmAnalysis.triggerDigit,
+            confidence: dmAnalysis.confidence,
+            qualityScore: dmAnalysis.tradeQualityScore
+          };
+        }
+      }
+    }
+
     const updatedState: SymbolState = {
       ...sState,
       buffer: updatedBuffer,
@@ -1195,6 +1287,11 @@ class ServerBot {
       evenOddStreakCount: nextStreakCount,
       parityPatternEven: parityBacktest.even,
       parityPatternOdd: parityBacktest.odd,
+      evenPatternWinRate: null,
+      oddPatternWinRate: null,
+      evenPatternCount: 0,
+      oddPatternCount: 0,
+      ...dmFields,
       signalStrength: strength,
       digitFreq: digitCounts,
       digitPct: digitPercentages,
@@ -1209,6 +1306,8 @@ class ServerBot {
 
     if (this.config.strategy === "evenodd") {
       this.processEvenOddMachine(symbol, updatedState);
+    } else if (this.config.strategy === "digitmatch") {
+      this.processDigitMatchMachine(symbol, updatedState);
     } else {
       this.processTradingMachine(symbol, updatedState);
     }
@@ -1219,6 +1318,391 @@ class ServerBot {
    * patterns and tallies which direction (EVEN/ODD) the flip went.
    * Returns { even, odd } counts.
    */
+  // ─── Digit Match Analysis Engine ──────────────────────────────────────────
+
+  private calculateDigitMatchAnalysis(buffer: number[]): {
+    dominantDigit: number; triggerDigit: number; confidence: number;
+    tradeQualityScore: number; marketStability: "STABLE" | "VOLATILE" | "TRENDING";
+    riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  } {
+    const rollingTicks = buffer.slice(-120);
+    const len = rollingTicks.length || 1;
+
+    const counts = Array(10).fill(0);
+    rollingTicks.forEach(d => { if (d >= 0 && d <= 9) counts[d]++; });
+    const freqs = counts.map((count, digit) => ({
+      digit, count, percentage: parseFloat(((count / len) * 100).toFixed(2))
+    }));
+
+    // Stability: divide into 4 chunks, measure variance
+    const chunkSize = 30;
+    const chunks: number[][] = [[], [], [], []];
+    for (let i = 0; i < rollingTicks.length; i++) {
+      const ci = Math.min(Math.floor(i / chunkSize), 3);
+      chunks[ci].push(rollingTicks[i]);
+    }
+    const chunkCounts = Array(10).fill(0).map(() => Array(4).fill(0));
+    chunks.forEach((chunk, ci) => {
+      chunk.forEach(d => { if (d >= 0 && d <= 9) chunkCounts[d][ci]++; });
+    });
+    const stabilities = Array(10).fill(0);
+    for (let d = 0; d < 10; d++) {
+      const avg = chunkCounts[d].reduce((a, b) => a + b, 0) / 4;
+      const variance = chunkCounts[d].reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / 4;
+      const stdDev = Math.sqrt(variance);
+      stabilities[d] = Math.max(0, Math.min(100, Math.round(100 - (stdDev / Math.max(1, avg)) * 40)));
+    }
+
+    // Transition matrix
+    const transitions = Array(10).fill(0).map(() => Array(10).fill(0));
+    for (let i = 0; i < rollingTicks.length - 1; i++) {
+      const a = rollingTicks[i], b = rollingTicks[i + 1];
+      if (a >= 0 && a <= 9 && b >= 0 && b <= 9) transitions[a][b]++;
+    }
+
+    // Score all p/t combinations
+    const combinations: { prediction: number; trigger: number; score: number; confidence: number; risk: "LOW" | "MEDIUM" | "HIGH" }[] = [];
+    for (let p = 0; p < 10; p++) {
+      for (let t = 0; t < 10; t++) {
+        if (p === t) continue;
+        const predFreq = freqs[p].percentage;
+        const predStability = stabilities[p];
+        const frequencyStrength = Math.max(0, Math.min(100, (predFreq * 5) + (predStability * 0.25)));
+        const triggerFreq = freqs[t].percentage;
+        const triggerRarityScore = Math.max(0, Math.min(100, 100 - Math.abs(triggerFreq - 9.5) * 15));
+        const stabilityScore = Math.round((stabilities[p] * 0.6) + (stabilities[t] * 0.4));
+        const separationVal = Math.abs(freqs[p].percentage - freqs[t].percentage);
+        const signalSeparation = Math.min(100, separationVal * 15);
+        const totalTransFromT = transitions[t].reduce((a, b) => a + b, 0);
+        const transitionRate = totalTransFromT > 0 ? (transitions[t][p] / totalTransFromT) : 0;
+        const correlationScore = Math.min(100, transitionRate * 300);
+        const totalScore = (frequencyStrength * 0.30) + (triggerRarityScore * 0.20) + (stabilityScore * 0.20) + (signalSeparation * 0.15) + (correlationScore * 0.15);
+        const confidence = Math.max(10, Math.min(99, Math.round(totalScore)));
+        const risk: "LOW" | "MEDIUM" | "HIGH" = confidence >= 80 ? "LOW" : confidence < 55 ? "HIGH" : "MEDIUM";
+        combinations.push({ prediction: p, trigger: t, score: totalScore, confidence, risk });
+      }
+    }
+    combinations.sort((a, b) => b.score - a.score);
+    const best = combinations[0] || { prediction: 4, trigger: 9, score: 50, confidence: 60, risk: "MEDIUM" as const };
+
+    // Market stability from spread
+    const maxPct = Math.max(...freqs.map(f => f.percentage));
+    const minPct = Math.min(...freqs.map(f => f.percentage));
+    const spread = maxPct - minPct;
+    let marketStability: "STABLE" | "VOLATILE" | "TRENDING" = "STABLE";
+    let stabilityIndex = 50;
+    if (spread < 6) { marketStability = "VOLATILE"; stabilityIndex = Math.round(25 + spread * 4); }
+    else if (spread > 13) { marketStability = "TRENDING"; stabilityIndex = Math.min(100, Math.round(75 + (spread - 13) * 2)); }
+    else { marketStability = "STABLE"; stabilityIndex = Math.round(50 + (spread - 6) * 3.5); }
+
+    const tradeQualityScore = Math.min(100, Math.round((best.confidence * 0.7) + (stabilityIndex * 0.3)));
+
+    return {
+      dominantDigit: best.prediction,
+      triggerDigit: best.trigger,
+      confidence: best.confidence,
+      tradeQualityScore,
+      marketStability,
+      riskLevel: best.risk
+    };
+  }
+
+  private checkDigitTie(buffer: number[]): boolean {
+    const recent = buffer.slice(-15);
+    if (recent.length === 0) return false;
+    const counts = Array(10).fill(0);
+    recent.forEach(d => { if (d >= 0 && d <= 9) counts[d]++; });
+    const sorted = [...counts].sort((a, b) => b - a);
+    return sorted[0] > 0 && sorted[0] === sorted[1];
+  }
+
+  // ─── Digit Match Strategy Engine ──────────────────────────────────────────
+
+  private processDigitMatchMachine(symbol: string, state: SymbolState) {
+    if (this.botState === "STATE_WARMING_UP") {
+      const readyCount = Object.values(this.symbolStates).filter(
+        s => s.buffer.length >= EVENODD_MIN_QUALIFYING_TICKS
+      ).length;
+      if (readyCount >= 5) {
+        this.botState = "STATE_SCANNING";
+        this.showToast("Digit Match engine active. Scanning for best pair…", "blue");
+        this.selectDigitMatchSymbol();
+      }
+      return;
+    }
+
+    if (this.botState === "STATE_IDLE" || this.botState === "STATE_STOPPED") return;
+
+    // Virtual settlement
+    if (this.awaitingSettlement && this.pendingVirtualContract && this.pendingVirtualContract.symbol === symbol) {
+      this.handleDigitMatchVirtualSettled(state.lastDigit!);
+      return;
+    }
+
+    if (this.botState === "STATE_SCANNING") {
+      this.selectDigitMatchSymbol();
+      return;
+    }
+
+    // Locked on this symbol — execute when signal fires
+    if (this.botState === "STATE_CONFIRMING" && this.activeSymbol === symbol) {
+      if (this.dmPendingSignal && this.dmPendingSignal.symbol === symbol) {
+        const sig = this.dmPendingSignal;
+        this.dmPendingSignal = null;
+
+        // Re-validate — still signal-ready and no tie?
+        if (!state.dmSignalReady || state.dmTieDetected) {
+          this.showToast(`Signal invalidated on ${state.displayName}. Re-scanning.`, "grey");
+          this.activeSymbol = null;
+          this.botState = "STATE_SCANNING";
+          this.selectDigitMatchSymbol();
+          return;
+        }
+
+        this.botState = "STATE_TRADING";
+        this.executeDigitMatchTrade(sig.symbol, sig.dominantDigit, sig.triggerDigit, sig.confidence, sig.qualityScore, state);
+      } else {
+        // Continuously re-evaluate — drop pair if quality dropped or tie detected
+        if (state.dmTieDetected) {
+          this.showToast(`Tie detected on ${state.displayName}. Re-scanning.`, "grey");
+          this.activeSymbol = null;
+          this.botState = "STATE_SCANNING";
+          this.dmPendingSignal = null;
+          this.selectDigitMatchSymbol();
+        }
+      }
+    }
+  }
+
+  private selectDigitMatchSymbol() {
+    if (this.botState === "STATE_TRADING" || this.awaitingSettlement) return;
+
+    const minBuffer = EVENODD_MIN_QUALIFYING_TICKS;
+    const candidates = Object.values(this.symbolStates).filter(s =>
+      s.buffer.length >= minBuffer && !s.isClosed && !s.dmTieDetected && s.dmTradeQualityScore > 0
+    );
+
+    if (candidates.length === 0) {
+      if (this.activeSymbol !== null) {
+        this.activeSymbol = null;
+        this.botState = "STATE_SCANNING";
+      }
+      return;
+    }
+
+    // Pick pair with highest trade quality score
+    candidates.sort((a, b) => b.dmTradeQualityScore - a.dmTradeQualityScore);
+    const best = candidates[0];
+
+    if (best.symbol !== this.activeSymbol) {
+      this.dmPendingSignal = null;
+      this.activeSymbol = best.symbol;
+      this.botState = "STATE_CONFIRMING";
+      this.showToast(
+        `Digit Match locked on ${best.displayName} — Quality: ${best.dmTradeQualityScore}%, Digit [${best.dmDominantDigit}], Confidence: ${best.dmConfidence.toFixed(1)}%. Awaiting signal…`,
+        "blue"
+      );
+    }
+  }
+
+  private executeDigitMatchTrade(
+    symbol: string, dominantDigit: number, triggerDigit: number,
+    confidence: number, qualityScore: number, state: SymbolState
+  ) {
+    const baseStake = this.config.stakeAmount;
+    let computedStake = baseStake;
+
+    if ((this.config.digitMatchMartingale ?? false) && this.dmMartingaleStep > 0) {
+      const multiplier = this.config.digitMatchMartingaleMultiplier ?? 1.5;
+      computedStake = Number((baseStake * Math.pow(multiplier, this.dmMartingaleStep)).toFixed(2));
+    }
+
+    const isSandbox = this.config.demoMode || !this.config.apiToken;
+    const currentBalance = isSandbox
+      ? Math.max(0, (Number(this.balance) || 10000) - this.bankBalance)
+      : (Number(this.balance) || 0);
+
+    if (computedStake > currentBalance) {
+      this.showToast(`Insufficient balance for Digit Match stake: $${computedStake}. Halting.`, "red");
+      this.haltBot(`Insufficient balance for DigitMatch stake`);
+      return;
+    }
+
+    this.awaitingSettlement = true;
+    this.showToast(
+      `[DIGITMATCH] ${state.displayName} — Predict digit [${dominantDigit}] | Trigger [${triggerDigit}] | Confidence: ${confidence.toFixed(1)}% | Stake: $${computedStake.toFixed(2)}`,
+      "blue"
+    );
+
+    if (isSandbox) {
+      this.pendingVirtualContract = {
+        symbol,
+        stake: computedStake,
+        barrier: dominantDigit, // reuse barrier field to store target digit
+        multiplier: Number((computedStake / baseStake).toFixed(2)),
+        seq: this.sequenceDone,
+        timestamp: new Date().toISOString(),
+        under_pct: qualityScore,
+        signal_strength: `Q${qualityScore}% C${confidence.toFixed(0)}%`,
+        direction: undefined
+      };
+    } else {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.pendingRealContract = {
+          id: "",
+          symbol,
+          stake: computedStake,
+          seq: this.sequenceDone,
+          under_pct: qualityScore,
+          signal_strength: `Q${qualityScore}% C${confidence.toFixed(0)}%`
+        };
+
+        this.ws.send(JSON.stringify({
+          proposal: 1,
+          amount: computedStake,
+          basis: "stake",
+          contract_type: "DIGITMATCH",
+          currency: this.accountCurrency || "USD",
+          duration: 1,
+          duration_unit: "t",
+          underlying_symbol: symbol,
+          barrier: String(dominantDigit)
+        }));
+      }
+    }
+  }
+
+  private handleDigitMatchVirtualSettled(settledDigit: number) {
+    const contract = this.pendingVirtualContract;
+    if (!contract) return;
+
+    this.pendingVirtualContract = null;
+    this.awaitingSettlement = false;
+
+    const targetDigit = contract.barrier; // stored in barrier field
+    const isWin = settledDigit === targetDigit;
+
+    // DIGITMATCH payout: ~8.09× stake on win
+    const DM_PAYOUT = 8.09;
+    const profitAmount = isWin
+      ? Number((contract.stake * DM_PAYOUT).toFixed(2))
+      : -contract.stake;
+
+    this.processDigitMatchOutcome(
+      isWin ? "WIN" : "LOSS",
+      contract.symbol,
+      contract.stake,
+      profitAmount,
+      targetDigit,
+      contract.under_pct ?? 0,
+      contract.signal_strength ?? ""
+    );
+  }
+
+  private processDigitMatchOutcome(
+    outcome: "WIN" | "LOSS",
+    symbol: string,
+    stake: number,
+    profit: number,
+    targetDigit: number,
+    qualityScore: number,
+    signalStrength: string
+  ) {
+    const nextSessionProfit = Number((this.sessionProfit + profit).toFixed(2));
+    this.sessionProfit = nextSessionProfit;
+    const nextDailyTrades = this.dailyTradesCount + 1;
+    this.dailyTradesCount = nextDailyTrades;
+
+    // Update sandbox balance
+    if (this.config.demoMode || !this.config.apiToken) {
+      this.sandboxBalance = Number((this.sandboxBalance + profit).toFixed(2));
+      this.config.demoBalance = this.sandboxBalance;
+      this.balance = this.sandboxBalance.toFixed(2);
+      this.saveConfigPersistence();
+      if (this.onBalanceChange) this.onBalanceChange(this.telegramId, this.sandboxBalance);
+    }
+
+    if (outcome === "WIN") {
+      this.currentStreak += 1;
+      if (this.currentStreak > this.bestStreak) this.bestStreak = this.currentStreak;
+    } else {
+      this.currentStreak = 0;
+    }
+    if (nextSessionProfit > this.peakProfit) this.peakProfit = nextSessionProfit;
+    const drawdown = this.peakProfit - nextSessionProfit;
+    if (drawdown > this.worstDrawdown) this.worstDrawdown = drawdown;
+
+    // Log trade
+    const nextId = this.tradeLogs.length > 0 ? Math.max(...this.tradeLogs.map(l => l.id)) + 1 : 1;
+    const multiplierUsed = Number((stake / this.config.stakeAmount).toFixed(2));
+    const newLog: TradeLog = {
+      id: nextId,
+      timestamp: new Date().toISOString(),
+      symbol,
+      mode: `DigitMatch-${(this.config.digitMatchMartingale ?? false) ? "Martingale" : "Standard"}`,
+      under_pct: qualityScore,
+      signal_strength: signalStrength,
+      barrier: targetDigit,
+      stake,
+      multiplier: multiplierUsed,
+      outcome,
+      profit,
+      session_profit: nextSessionProfit,
+      daily_trade_no: nextDailyTrades,
+      consecutive_losses_before: this.dmConsecLosses,
+      in_recovery: this.dmMartingaleStep > 0,
+      target_digit: targetDigit
+    };
+    this.tradeLogs = [newLog, ...this.tradeLogs].slice(0, 200);
+    this.saveLogsPersistence();
+
+    if (outcome === "WIN") {
+      tgNotifier.notifyTradeWin(newLog);
+    } else {
+      tgNotifier.notifyTradeLoss(newLog);
+    }
+
+    // Martingale / consecutive loss handling
+    if (outcome === "WIN") {
+      this.dmConsecLosses = 0;
+      this.dmMartingaleStep = 0;
+      this.showToast(`WIN! +$${profit.toFixed(2)} [DigitMatch] — Digit [${targetDigit}] matched! Stake reset.`, "green");
+    } else {
+      this.dmConsecLosses += 1;
+      const maxSteps = this.config.digitMatchMartingaleMaxSteps ?? 5;
+      const consecLimit = this.config.digitMatchConsecLossLimit ?? 4;
+
+      if ((this.config.digitMatchMartingale ?? false) && this.dmMartingaleStep < maxSteps) {
+        this.dmMartingaleStep += 1;
+        const nextStake = Number((this.config.stakeAmount * Math.pow(this.config.digitMatchMartingaleMultiplier ?? 1.5, this.dmMartingaleStep)).toFixed(2));
+        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [DigitMatch]. Next stake: $${nextStake.toFixed(2)} (step ${this.dmMartingaleStep}/${maxSteps}).`, "red");
+      } else if ((this.config.digitMatchMartingale ?? false) && this.dmMartingaleStep >= maxSteps) {
+        this.dmMartingaleStep = 0;
+        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [DigitMatch]. Max martingale steps reached — stake reset.`, "red");
+      } else {
+        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [DigitMatch Standard]. Consecutive: ${this.dmConsecLosses}/${consecLimit}.`, "red");
+      }
+
+      if (this.dmConsecLosses >= consecLimit) {
+        this.haltBot(`DigitMatch: ${consecLimit} consecutive losses reached`);
+        this.showToast(`${consecLimit} consecutive losses — session halted for protection.`, "red");
+        return;
+      }
+    }
+
+    const nextSeqDone = this.sequenceDone + 1;
+    this.sequenceDone = nextSeqDone;
+
+    const limitsTriggered = this.checkSessionLimits();
+    if (!limitsTriggered) {
+      this.dmPendingSignal = null;
+      this.activeSymbol = null;
+      this.botState = "STATE_SCANNING";
+      this.showToast("Digit Match cycle complete. Rescanning for best pair…", "blue");
+      this.selectDigitMatchSymbol();
+    }
+  }
+
   private computeParityBacktest(buffer: number[]): { even: number; odd: number } {
     let even = 0, odd = 0;
     if (buffer.length < 4) return { even, odd };
@@ -1709,8 +2193,8 @@ class ServerBot {
   }
 
   private processTradingMachine(symbol: string, symbolStateData: SymbolState) {
-    // Safety guard — should never be called when strategy is evenodd
-    if (this.config.strategy === "evenodd") return;
+    // Safety guard — should never be called when strategy is evenodd or digitmatch
+    if (this.config.strategy === "evenodd" || this.config.strategy === "digitmatch") return;
 
     if (this.botState === "STATE_WARMING_UP") {
       const readyMarkets = Object.values(this.symbolStates).filter(
@@ -2052,6 +2536,25 @@ class ServerBot {
       return;
     }
 
+    // DigitMatch real trades
+    if (this.config.strategy === "digitmatch") {
+      const targetDigit = savedContract?.under_pct !== undefined
+        ? this.pendingVirtualContract?.barrier ?? 0
+        : 0;
+      // For real trades, barrier is the target digit stored in proposal
+      const dmTargetDigit = Number(savedContract?.signal_strength?.match(/\d+/)?.[0] ?? 0);
+      this.processDigitMatchOutcome(
+        isWin ? "WIN" : "LOSS",
+        symbol,
+        stakeAmount,
+        profitAmount,
+        dmTargetDigit,
+        under_pct,
+        signalStr
+      );
+      return;
+    }
+
     this.processContractOutcome(isWin ? "WIN" : "LOSS", symbol, stakeAmount, profitAmount, under_pct, signalStr);
   }
 
@@ -2063,8 +2566,8 @@ class ServerBot {
     under_pct: number,
     signal_strength: string
   ) {
-    // Safety guard — even/odd trades must never reach this method
-    if (this.config.strategy === "evenodd") return;
+    // Safety guard — even/odd and digitmatch trades must never reach this method
+    if (this.config.strategy === "evenodd" || this.config.strategy === "digitmatch") return;
 
     const nextSessionProfit = Number((this.sessionProfit + profit).toFixed(2));
     this.sessionProfit = nextSessionProfit;

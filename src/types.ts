@@ -32,13 +32,18 @@ export interface BotConfig {
   selectedSymbol: string;
   mode: "Standard" | "GradualRecovery" | "GradualRecoveryPro" | "GradualRecoveryLite" | "GradualRecoveryProLite";
   showAllModes?: boolean; // when false, forces GradualRecoveryProLite and hides mode selector
-  strategy?: "under" | "evenodd"; // which strategy engine drives the bot — defaults to "under"
-  evenOddMode?: "Standard" | "Pro"; // mode system for the Even/Odd strategy only
-  evenOddDominance?: number; // min EVEN%/ODD% dominance required to qualify a pair (default 55)
-  evenOddMartingale?: number; // multiplier applied on each loss in Pro mode (default 2)
-  evenOddCooldownDominance?: number; // raised dominance threshold during cooldown (default 60)
-  evenOddDirection?: "BOTH" | "EVEN" | "ODD"; // trade direction filter (default BOTH)
-  evenOddMinPatternRate?: number; // minimum pattern win rate % to qualify a pair (default 55)
+  strategy?: "under" | "evenodd" | "digitmatch"; // which strategy engine drives the bot
+  evenOddMode?: "Standard" | "Pro";
+  evenOddDominance?: number;
+  evenOddMartingale?: number;
+  evenOddCooldownDominance?: number;
+  evenOddDirection?: "BOTH" | "EVEN" | "ODD";
+  evenOddMinPatternRate?: number;
+  // Digit Match strategy config
+  digitMatchMartingale?: boolean;
+  digitMatchMartingaleMultiplier?: number; // default 1.5
+  digitMatchMartingaleMaxSteps?: number;   // default 5
+  digitMatchConsecLossLimit?: number;      // default 4
   appId: string;
   apiToken: string;
   demoMode: boolean; // if true, simulates virtual trades inside the bot
@@ -79,10 +84,20 @@ export interface SymbolState {
   parityPatternEven: number;  // count of patterns where flip was EVEN
   parityPatternOdd: number;   // count of patterns where flip was ODD
   // Live parity backtest: win rates computed from buffer patterns (updated every tick)
-  evenPatternWinRate: number | null; // % of 3-even→odd patterns where odd actually followed
-  oddPatternWinRate: number | null;  // % of 3-odd→even patterns where even actually followed
-  evenPatternCount: number; // total qualifying patterns found in buffer
+  evenPatternWinRate: number | null;
+  oddPatternWinRate: number | null;
+  evenPatternCount: number;
   oddPatternCount: number;
+  // Digit Match strategy — per-symbol smart analysis results (updated every tick)
+  dmDominantDigit: number | null;
+  dmTriggerDigit: number | null;
+  dmConfidence: number;
+  dmTradeQualityScore: number;
+  dmSignalReady: boolean;
+  dmTieDetected: boolean;
+  dmMarketStability: "STABLE" | "VOLATILE" | "TRENDING" | null;
+  dmRiskLevel: "LOW" | "MEDIUM" | "HIGH" | null;
+  dmDominantHistory: (number | null)[];
 }
 
 export interface TradeLog {
@@ -102,6 +117,7 @@ export interface TradeLog {
   consecutive_losses_before: number;
   in_recovery: boolean;
   direction?: "EVEN" | "ODD"; // set only for Even/Odd strategy trades
+  target_digit?: number;       // set only for DigitMatch trades
 }
 
 export interface ToastMessage {

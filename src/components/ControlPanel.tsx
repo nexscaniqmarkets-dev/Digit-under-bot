@@ -71,10 +71,14 @@ export default function ControlPanel({
       case "STATE_CONFIRMING":
         return (config.strategy ?? "under") === "evenodd"
           ? { text: "PATTERN WATCHING", sub: `Waiting for 3-digit reversal signal on ${SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol}…`, dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/40", border: "border-[#c5a059]" }
+          : (config.strategy ?? "under") === "digitmatch"
+          ? { text: "SIGNAL WATCHING", sub: `Digit Match analysis running on ${SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol}…`, dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/40", border: "border-[#c5a059]" }
           : { text: "SIGNAL DETECTED", sub: `Matching 2-tick Under ${config.referenceDigit} qualifiers on ${SYMBOLS.find((s) => s.symbol === activeSymbol)?.name || activeSymbol}…`, dot: "bg-[#c5a059] pulsing-dot", color: "text-[#775a19]", bg: "bg-[#ffdea5]/40", border: "border-[#c5a059]" };
       case "STATE_TRADING":
         return (config.strategy ?? "under") === "evenodd"
           ? { text: "EVEN/ODD CONTRACT PLACED", sub: "Awaiting digit parity settlement on broker…", dot: "bg-success", color: "text-success", bg: "bg-success-light/50", border: "border-success/30" }
+          : (config.strategy ?? "under") === "digitmatch"
+          ? { text: "DIGITMATCH CONTRACT PLACED", sub: "Awaiting exact digit match settlement (~8× payout)…", dot: "bg-success", color: "text-success", bg: "bg-success-light/50", border: "border-success/30" }
           : { text: "CONTRACT SEQUENCE PLACED", sub: "Executing rapid automated Digit Under settlements on broker…", dot: "bg-success", color: "text-success", bg: "bg-success-light/50", border: "border-success/30" };
       case "STATE_RECOVERY":
         return { text: "MARTINGALE RECOVERY SWEEP", sub: "Awaiting next confirming target on same volatility index…", dot: "bg-orange-500 pulsing-dot", color: "text-orange-700", bg: "bg-orange-50", border: "border-orange-200" };

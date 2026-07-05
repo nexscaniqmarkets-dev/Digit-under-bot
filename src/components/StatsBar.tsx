@@ -25,6 +25,7 @@ export default function StatsBar({
   const evenPct = activeSymbolState?.evenPct ?? 0;
   const oddPct = activeSymbolState?.oddPct ?? 0;
   const isEvenOdd = (config.strategy ?? "under") === "evenodd";
+  const isDigitMatch = (config.strategy ?? "under") === "digitmatch";
   const dominantPct = isEvenOdd ? Math.max(evenPct, oddPct) : underPct;
   const dominantLabel = isEvenOdd
     ? (evenPct >= oddPct ? `EVEN ${evenPct.toFixed(1)}% · ODD ${oddPct.toFixed(1)}%` : `ODD ${oddPct.toFixed(1)}% · EVEN ${evenPct.toFixed(1)}%`)
@@ -56,12 +57,53 @@ export default function StatsBar({
 
   return (
     <div className="grid grid-cols-2 gap-3 animate-fade-in">
-      {/* Under % / Even-Odd dominance — full width */}
+      {/* Main stat card — strategy-aware */}
       <div className="glass-card rounded-xl p-4 flex flex-col gap-1 col-span-2">
-        <div className="flex justify-between items-center">
-          <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">
-            {isEvenOdd ? "EVEN / ODD DOMINANCE" : "UNDER DIGIT %"}
-          </span>
+        {isDigitMatch ? (
+          <>
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">DIGIT MATCH ANALYSIS</span>
+              <div className="flex items-center gap-2">
+                {activeSymbolState?.dmTieDetected && (
+                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider bg-amber-100 text-amber-700 border-amber-300">TIE</span>
+                )}
+                {activeSymbolState?.dmMarketStability && (
+                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider bg-[#f0e8df] text-[#4e4639] border-[#d1c5b4]">
+                    {activeSymbolState.dmMarketStability}
+                  </span>
+                )}
+                <span className="material-symbols-outlined text-[#775a19] text-sm">target</span>
+              </div>
+            </div>
+            <div className="flex items-end gap-3 mt-1">
+              <div>
+                <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Predict</div>
+                <div className="text-[56px] leading-none font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                  {activeSymbolState?.dmDominantDigit !== null && activeSymbolState?.dmDominantDigit !== undefined ? activeSymbolState.dmDominantDigit : "—"}
+                </div>
+              </div>
+              <div className="mb-2">
+                <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Trigger</div>
+                <div className="text-[32px] leading-none font-bold text-[#4e4639]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                  {activeSymbolState?.dmTriggerDigit !== null && activeSymbolState?.dmTriggerDigit !== undefined ? activeSymbolState.dmTriggerDigit : "—"}
+                </div>
+              </div>
+              <div className="mb-2 ml-auto text-right">
+                <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Quality</div>
+                <div className="text-[28px] leading-none font-bold" style={{ fontFamily: "IBM Plex Mono, monospace", color: (activeSymbolState?.dmTradeQualityScore ?? 0) >= 70 ? "#2d7a3a" : (activeSymbolState?.dmTradeQualityScore ?? 0) >= 50 ? "#775a19" : "#7f7667" }}>
+                  {activeSymbolState ? `${activeSymbolState.dmTradeQualityScore}%` : "—"}
+                </div>
+                <div className="text-[9px] text-[#7f7667]">Confidence: {activeSymbolState ? `${activeSymbolState.dmConfidence.toFixed(1)}%` : "—"}</div>
+              </div>
+            </div>
+            {activeSymbolState?.dmRiskLevel && (
+              <p className="text-[11px] text-[#4e4639]/70">
+                Risk: <span className={activeSymbolState.dmRiskLevel === "LOW" ? "text-success font-bold" : activeSymbolState.dmRiskLevel === "HIGH" ? "text-error font-bold" : "text-amber-600 font-bold"}>{activeSymbolState.dmRiskLevel}</span>
+                {activeSymbolState.dmSignalReady ? " · Signal READY ✓" : " · Awaiting signal…"}
+              </p>
+            )}
+          </>
+        ) : (
           <div className="flex items-center gap-2">
             {activeSymbolState && (
               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${sc.badge}`}>
@@ -79,6 +121,7 @@ export default function StatsBar({
         <p className="text-[11px] text-[#4e4639]/70 leading-snug">
           {activeSymbolState ? dominantLabel : "Awaiting active scanning data…"}
         </p>
+        )}
       </div>
 
       {/* Confirmations (Under) / Streak Tracker (Even/Odd) */}

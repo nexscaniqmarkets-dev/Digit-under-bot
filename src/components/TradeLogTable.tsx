@@ -99,6 +99,7 @@ export default function TradeLogTable({ logs, onClearLogs }: TradeLogTableProps)
                   const t = new Date(log.timestamp);
                   const timeStr = t.toLocaleTimeString("en-US", { hour12: false });
                   const isEvenOdd = log.mode?.startsWith("EvenOdd");
+                  const isDigitMatch = log.mode?.startsWith("DigitMatch");
                   const modeShort = log.mode === "GradualRecoveryProLite" ? "SPL-PRO-L" : log.mode === "GradualRecoveryPro" ? "SPL-PRO" : log.mode === "GradualRecoveryLite" ? "SPL-L" : log.mode === "GradualRecovery" ? "SPL-M" : "STD";
 
                   return (
@@ -109,7 +110,12 @@ export default function TradeLogTable({ logs, onClearLogs }: TradeLogTableProps)
                         {log.symbol.replace("1HZ", "V").replace("V", "V").replace("R_", "V")}
                       </td>
                       <td className="px-3 py-2.5 text-[11px] text-[#4e4639]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                        {isEvenOdd ? (
+                        {isDigitMatch ? (
+                          <>
+                            <span>D[{log.target_digit ?? log.barrier}]</span>
+                            <span className="text-[9px] opacity-60 ml-1">{log.mode?.replace("DigitMatch-", "")}</span>
+                          </>
+                        ) : isEvenOdd ? (
                           <>
                             <span>{log.direction ?? "E/O"}</span>
                             <span className="text-[9px] opacity-60 ml-1">{log.mode?.replace("EvenOdd-", "")}</span>

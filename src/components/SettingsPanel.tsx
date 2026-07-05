@@ -83,10 +83,11 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
             <div className="px-4 pb-5 pt-2 flex flex-col gap-4 border-t border-[#d1c5b4]/50">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">TRADING STRATEGY</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {[
                     { value: "under", label: "DIGIT UNDER", icon: "trending_down", desc: "Predict last digit under barrier" },
                     { value: "evenodd", label: "EVEN / ODD", icon: "swap_horiz", desc: "Predict parity reversal pattern" },
+                    { value: "digitmatch", label: "DIGIT MATCH", icon: "target", desc: "Predict exact digit match (~8×)" },
                   ].map(({ value, label, icon, desc }) => (
                     <button
                       key={value} type="button" disabled={isRunning}
@@ -254,6 +255,83 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                     <p className="text-[9px] text-[#7f7667]">
                       Minimum historical reversal pattern win rate on a pair before the bot locks on. Requires ≥5 patterns to activate. Default: 55%.
                     </p>
+                  </div>
+                </>
+              )}
+
+              {/* DigitMatch sub-options */}
+              {(formData.strategy ?? "under") === "digitmatch" && (
+                <>
+                  <div className="flex items-center justify-between py-2 border-t border-[#d1c5b4]/30">
+                    <div>
+                      <span className="text-[13px] text-[#1e1b16] font-semibold uppercase tracking-[0.04em]">MARTINGALE</span>
+                      <p className="text-[10px] text-[#7f7667] mt-0.5">
+                        {formData.digitMatchMartingale ? `${formData.digitMatchMartingaleMultiplier ?? 1.5}× per loss, max ${formData.digitMatchMartingaleMaxSteps ?? 5} steps` : "Fixed stake, no progression"}
+                      </p>
+                    </div>
+                    <div
+                      className={`custom-switch ${formData.digitMatchMartingale ? "switch-active" : ""}`}
+                      onClick={() => !isRunning && set("digitMatchMartingale", !formData.digitMatchMartingale)}
+                    />
+                  </div>
+
+                  {formData.digitMatchMartingale && (
+                    <>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">MARTINGALE MULTIPLIER</label>
+                          <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                            {(formData.digitMatchMartingaleMultiplier ?? 1.5).toFixed(1)}×
+                          </span>
+                        </div>
+                        <input
+                          type="range" min="1.2" max="3" step="0.1" disabled={isRunning}
+                          value={formData.digitMatchMartingaleMultiplier ?? 1.5}
+                          onChange={(e) => set("digitMatchMartingaleMultiplier", parseFloat(e.target.value))}
+                          className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                        />
+                        <div className="flex justify-between text-[9px] text-[#7f7667]">
+                          <span>1.2× (conservative)</span>
+                          <span>3× (aggressive)</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">MAX MARTINGALE STEPS</label>
+                          <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                            {formData.digitMatchMartingaleMaxSteps ?? 5}
+                          </span>
+                        </div>
+                        <input
+                          type="range" min="2" max="8" step="1" disabled={isRunning}
+                          value={formData.digitMatchMartingaleMaxSteps ?? 5}
+                          onChange={(e) => set("digitMatchMartingaleMaxSteps", parseInt(e.target.value))}
+                          className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                        />
+                        {(() => {
+                          const m = formData.digitMatchMartingaleMultiplier ?? 1.5;
+                          const s = formData.stakeAmount ?? 1;
+                          const steps = [1,2,3].map(i => `$${(s * Math.pow(m, i)).toFixed(2)}`).join(" → ");
+                          return <p className="text-[9px] text-[#7f7667]">Stake progression: ${s} → {steps}…</p>;
+                        })()}
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">CONSECUTIVE LOSS LIMIT</label>
+                      <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {formData.digitMatchConsecLossLimit ?? 4}L
+                      </span>
+                    </div>
+                    <input
+                      type="range" min="2" max="8" step="1" disabled={isRunning}
+                      value={formData.digitMatchConsecLossLimit ?? 4}
+                      onChange={(e) => set("digitMatchConsecLossLimit", parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                    />
+                    <p className="text-[9px] text-[#7f7667]">Bot halts after this many consecutive losses in a session. Default: 4.</p>
                   </div>
                 </>
               )}

@@ -11,21 +11,21 @@ interface LeaderboardProps {
 export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol, setInspectSymbol, config }: LeaderboardProps) {
   const capacity = config.analysisTickCount;
   const isEvenOddStrategy = (config.strategy ?? "under") === "evenodd";
-  // Even/Odd uses a lower qualifying threshold (120) so pairs show data sooner
-  const qualifyingTicks = isEvenOddStrategy ? 120 : capacity;
+  const isDigitMatch = (config.strategy ?? "under") === "digitmatch";
+  const qualifyingTicks = (isEvenOddStrategy || isDigitMatch) ? 120 : capacity;
 
   const symbolList = SYMBOLS.map(({ symbol, name }) => {
     const s = symbolStates[symbol];
     if (s) return s;
-    return { symbol, displayName: name, buffer: [], underPct: 0, overPct: 0, evenPct: 0, oddPct: 0, signalStrength: "SCANNING..." as const, confirmationCounter: 0, digitFreq: {}, digitPct: {}, lastDigit: null, qualified: false, tickCount: 0, lastTickTime: 0, isClosed: false, evenOddStreakType: null, evenOddStreakCount: 0, parityPatternEven: 0, parityPatternOdd: 0 };
+    return { symbol, displayName: name, buffer: [], underPct: 0, overPct: 0, evenPct: 0, oddPct: 0, signalStrength: "SCANNING..." as const, confirmationCounter: 0, digitFreq: {}, digitPct: {}, lastDigit: null, qualified: false, tickCount: 0, lastTickTime: 0, isClosed: false, evenOddStreakType: null, evenOddStreakCount: 0, parityPatternEven: 0, parityPatternOdd: 0, dmDominantDigit: null, dmTriggerDigit: null, dmConfidence: 0, dmTradeQualityScore: 0, dmSignalReady: false, dmTieDetected: false, dmMarketStability: null, dmRiskLevel: null, dmDominantHistory: [] };
   });
 
-  const isEvenOdd = (config.strategy ?? "under") === "evenodd";
+  const isEvenOdd = isEvenOddStrategy;
 
   const sorted = [...symbolList].sort((a, b) => {
     const aW = a.buffer.length >= qualifyingTicks, bW = b.buffer.length >= qualifyingTicks;
-    const aScore = isEvenOdd ? Math.max((a as any).evenPct ?? 0, (a as any).oddPct ?? 0) : a.underPct;
-    const bScore = isEvenOdd ? Math.max((b as any).evenPct ?? 0, (b as any).oddPct ?? 0) : b.underPct;
+    const aScore = isDigitMatch ? ((a as any).dmTradeQualityScore ?? 0) : isEvenOdd ? Math.max((a as any).evenPct ?? 0, (a as any).oddPct ?? 0) : a.underPct;
+    const bScore = isDigitMatch ? ((b as any).dmTradeQualityScore ?? 0) : isEvenOdd ? Math.max((b as any).evenPct ?? 0, (b as any).oddPct ?? 0) : b.underPct;
     if (aW && bW) return bScore - aScore;
     if (aW && !bW) return -1;
     if (!aW && bW) return 1;
@@ -67,9 +67,15 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
           <tr className="border-b border-[#d1c5b4]/50 bg-[#fbf2e9]">
             <th className="px-2 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.08em]">Asset</th>
             <th className="px-1 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.08em] text-right">
-              {isEvenOdd ? "Dom%" : "Under%"}
+              {isDigitMatch ? "Quality" : isEvenOdd ? "Dom%" : "Under%"}
             </th>
-            {isEvenOdd ? (
+            {isDigitMatch ? (
+              <>
+                <th className="px-1 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.08em] text-center">Sig</th>
+                <th className="px-1 py-2 text-[9px] font-bold text-[#775a19] uppercase tracking-[0.08em] text-right">Digit</th>
+                <th className="px-1 py-2 text-[9px] font-bold text-[#7f7667] uppercase tracking-[0.08em] text-right">Conf%</th>
+              </>
+            ) : isEvenOdd ? (
               <>
                 <th className="px-1 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.08em] text-center">Sig</th>
                 <th className="px-1 py-2 text-[9px] font-bold text-[#775a19] uppercase tracking-[0.08em] text-right">E-Pat</th>
@@ -121,26 +127,60 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
                   )}
                 </td>
 
-                {/* Dom% */}
+                {/* Dom% / Quality */}
                 <td className="px-1 py-2 text-right">
                   {(() => {
-                    const displayPct = isEvenOdd
+                    const displayPct = isDigitMatch
+                      ? ((sym as any).dmTradeQualityScore ?? 0)
+                      : isEvenOdd
                       ? Math.max((sym as any).evenPct ?? 0, (sym as any).oddPct ?? 0)
                       : sym.underPct;
-                    const threshold = isEvenOdd ? (config.evenOddDominance ?? 55) : config.minUnderPercentage;
+                    const threshold = isDigitMatch ? 50 : isEvenOdd ? (config.evenOddDominance ?? 55) : config.minUnderPercentage;
                     const color = !isWarmed ? "text-[#7f7667]"
                       : displayPct >= threshold ? "text-[#775a19] font-bold"
                       : displayPct >= threshold - 5 ? "text-amber-600"
                       : "text-[#7f7667]";
                     return (
                       <span className={`text-[11px] ${color}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                        {isWarmed ? `${displayPct.toFixed(1)}%` : "—"}
+                        {isWarmed && displayPct > 0 ? `${displayPct.toFixed(isDigitMatch ? 0 : 1)}%` : "—"}
                       </span>
                     );
                   })()}
                 </td>
 
-                {isEvenOdd ? (
+                {isDigitMatch ? (
+                  <>
+                    {/* Quality score */}
+                    <td className="px-1 py-2 text-right">
+                      <span className={`text-[11px] ${!isWarmed ? "text-[#7f7667]" : (sym as any).dmTradeQualityScore >= 70 ? "text-[#2d7a3a] font-bold" : (sym as any).dmTradeQualityScore >= 50 ? "text-[#775a19] font-bold" : "text-[#7f7667]"}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {isWarmed && (sym as any).dmTradeQualityScore > 0 ? `${(sym as any).dmTradeQualityScore}%` : "—"}
+                      </span>
+                    </td>
+                    {/* Signal */}
+                    <td className="px-1 py-2 text-center">
+                      {(() => {
+                        if (!isWarmed) return <span className="text-[8px] text-[#7f7667]">…</span>;
+                        if ((sym as any).dmTieDetected) return <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700">TIE</span>;
+                        if ((sym as any).dmSignalReady) return <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-[#d5e0f7] text-[#485e8b]">RDY</span>;
+                        const ms = (sym as any).dmMarketStability;
+                        const sc = ms === "TRENDING" ? "text-[#775a19] bg-[#ffdea5]" : ms === "VOLATILE" ? "text-error bg-[#ffdad6]" : "text-[#7f7667] bg-[#f5ede4]";
+                        return <span className={`text-[8px] font-bold px-1 py-0.5 rounded uppercase ${sc}`}>{ms?.slice(0,3) ?? "—"}</span>;
+                      })()}
+                    </td>
+                    {/* Dominant digit */}
+                    <td className="px-1 py-2 text-right">
+                      <span className="text-[15px] font-black text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {isWarmed && (sym as any).dmDominantDigit !== null ? (sym as any).dmDominantDigit : "—"}
+                      </span>
+                    </td>
+                    {/* Confidence */}
+                    <td className="px-1 py-2 text-right">
+                      <span className={`text-[11px] ${!isWarmed ? "text-[#7f7667]" : (sym as any).dmConfidence >= 70 ? "text-[#2d7a3a] font-bold" : "text-[#7f7667]"}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        {isWarmed && (sym as any).dmConfidence > 0 ? `${(sym as any).dmConfidence.toFixed(0)}%` : "—"}
+                      </span>
+                    </td>
+                  </>
+                ) : isEvenOdd ? (
                   <>
                     {/* Signal — compact */}
                     <td className="px-1 py-2 text-center">

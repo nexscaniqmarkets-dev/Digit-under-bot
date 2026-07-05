@@ -262,76 +262,50 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
               {/* DigitMatch sub-options */}
               {(formData.strategy ?? "under") === "digitmatch" && (
                 <>
-                  <div className="flex items-center justify-between py-2 border-t border-[#d1c5b4]/30">
-                    <div>
-                      <span className="text-[13px] text-[#1e1b16] font-semibold uppercase tracking-[0.04em]">MARTINGALE</span>
-                      <p className="text-[10px] text-[#7f7667] mt-0.5">
-                        {formData.digitMatchMartingale ? `${formData.digitMatchMartingaleMultiplier ?? 1.5}× per loss, max ${formData.digitMatchMartingaleMaxSteps ?? 5} steps` : "Fixed stake, no progression"}
-                      </p>
-                    </div>
-                    <div
-                      className={`custom-switch ${formData.digitMatchMartingale ? "switch-active" : ""}`}
-                      onClick={() => !isRunning && set("digitMatchMartingale", !formData.digitMatchMartingale)}
-                    />
-                  </div>
-
-                  {formData.digitMatchMartingale && (
-                    <>
-                      <div className="flex flex-col gap-2">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">MARTINGALE MULTIPLIER</label>
-                          <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                            {(formData.digitMatchMartingaleMultiplier ?? 1.5).toFixed(1)}×
-                          </span>
-                        </div>
-                        <input
-                          type="range" min="1.2" max="3" step="0.1" disabled={isRunning}
-                          value={formData.digitMatchMartingaleMultiplier ?? 1.5}
-                          onChange={(e) => set("digitMatchMartingaleMultiplier", parseFloat(e.target.value))}
-                          className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
-                        />
-                        <div className="flex justify-between text-[9px] text-[#7f7667]">
-                          <span>1.2× (conservative)</span>
-                          <span>3× (aggressive)</span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">MAX MARTINGALE STEPS</label>
-                          <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                            {formData.digitMatchMartingaleMaxSteps ?? 5}
-                          </span>
-                        </div>
-                        <input
-                          type="range" min="2" max="8" step="1" disabled={isRunning}
-                          value={formData.digitMatchMartingaleMaxSteps ?? 5}
-                          onChange={(e) => set("digitMatchMartingaleMaxSteps", parseInt(e.target.value))}
-                          className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
-                        />
-                        {(() => {
-                          const m = formData.digitMatchMartingaleMultiplier ?? 1.5;
-                          const s = formData.stakeAmount ?? 1;
-                          const steps = [1,2,3].map(i => `$${(s * Math.pow(m, i)).toFixed(2)}`).join(" → ");
-                          return <p className="text-[9px] text-[#7f7667]">Stake progression: ${s} → {steps}…</p>;
-                        })()}
-                      </div>
-                    </>
-                  )}
-
+                  {/* Stop Loss */}
                   <div className="flex flex-col gap-2">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">CONSECUTIVE LOSS LIMIT</label>
-                      <span className="text-[13px] font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                        {formData.digitMatchConsecLossLimit ?? 4}L
+                      <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">STOP LOSS</label>
+                      <span className="text-[13px] font-bold text-error" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        -${((formData.stakeAmount ?? 1) * (formData.digitMatchStopLossMultiple ?? 15)).toFixed(2)}
                       </span>
                     </div>
                     <input
-                      type="range" min="2" max="8" step="1" disabled={isRunning}
-                      value={formData.digitMatchConsecLossLimit ?? 4}
-                      onChange={(e) => set("digitMatchConsecLossLimit", parseInt(e.target.value))}
+                      type="range" min="5" max="30" step="1" disabled={isRunning}
+                      value={formData.digitMatchStopLossMultiple ?? 15}
+                      onChange={(e) => set("digitMatchStopLossMultiple", parseInt(e.target.value))}
                       className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
                     />
-                    <p className="text-[9px] text-[#7f7667]">Bot halts after this many consecutive losses in a session. Default: 4.</p>
+                    <div className="flex justify-between text-[9px] text-[#7f7667]">
+                      <span>5× stake</span>
+                      <span className="font-bold">{formData.digitMatchStopLossMultiple ?? 15}× stake (default 15×)</span>
+                      <span>30× stake</span>
+                    </div>
+                  </div>
+
+                  {/* Take Profit */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">TAKE PROFIT</label>
+                      <span className="text-[13px] font-bold text-success" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                        +${((formData.stakeAmount ?? 1) * (formData.digitMatchTakeProfitMultiple ?? 20)).toFixed(2)}
+                      </span>
+                    </div>
+                    <input
+                      type="range" min="10" max="50" step="1" disabled={isRunning}
+                      value={formData.digitMatchTakeProfitMultiple ?? 20}
+                      onChange={(e) => set("digitMatchTakeProfitMultiple", parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-[#e9e1d8] rounded-lg appearance-none cursor-pointer accent-[#775a19] disabled:opacity-40"
+                    />
+                    <div className="flex justify-between text-[9px] text-[#7f7667]">
+                      <span>10× stake</span>
+                      <span className="font-bold">{formData.digitMatchTakeProfitMultiple ?? 20}× stake (default 20×)</span>
+                      <span>50× stake</span>
+                    </div>
+                  </div>
+
+                  <div className="text-[9px] text-[#7f7667] bg-[#f0e8df] rounded-lg px-2.5 py-2 leading-relaxed">
+                    At $1 stake: SL halts at -${((formData.stakeAmount ?? 1) * (formData.digitMatchStopLossMultiple ?? 15)).toFixed(2)} session loss · TP stops at +${((formData.stakeAmount ?? 1) * (formData.digitMatchTakeProfitMultiple ?? 20)).toFixed(2)} session profit
                   </div>
                 </>
               )}

@@ -142,10 +142,8 @@ const DEFAULT_CONFIG: BotConfig = {
   evenOddCooldownDominance: 60,
   evenOddDirection: "BOTH",
   evenOddMinPatternRate: 55,
-  digitMatchMartingale: false,
-  digitMatchMartingaleMultiplier: 1.5,
-  digitMatchMartingaleMaxSteps: 5,
-  digitMatchConsecLossLimit: 4, // minimum pattern win rate % required before locking on a pair
+  digitMatchStopLossMultiple: 15,  // halt when session loss reaches stake × 15
+  digitMatchTakeProfitMultiple: 20, // stop when session profit reaches stake × 20 // minimum pattern win rate % required before locking on a pair
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -189,8 +187,7 @@ class ServerBot {
   private reconnectCountdown: number | null = null;
   // Even/Odd cooldown: after 2 consecutive losses, skip the next 2 qualifying signals
   private evenOddCooldownSkipsRemaining: number = 0;
-  // Digit Match: martingale step tracking
-  private dmMartingaleStep: number = 0;
+  // Digit Match session tracking
   private dmConsecLosses: number = 0;
   private dmPendingSignal: { symbol: string; dominantDigit: number; triggerDigit: number; confidence: number; qualityScore: number } | null = null;
 
@@ -568,7 +565,6 @@ class ServerBot {
     this.pendingVirtualContract = null;
     this.pendingEvenOddSignal = null;
     this.dmPendingSignal = null;
-    this.dmMartingaleStep = 0;
     this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
@@ -635,7 +631,6 @@ class ServerBot {
     this.pendingVirtualContract = null;
     this.pendingEvenOddSignal = null;
     this.dmPendingSignal = null;
-    this.dmMartingaleStep = 0;
     this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
@@ -709,7 +704,6 @@ class ServerBot {
       multiplier: this.multiplier,
       inRecovery: this.inRecovery,
       evenOddCooldownSkipsRemaining: this.evenOddCooldownSkipsRemaining,
-      dmMartingaleStep: this.dmMartingaleStep,
       dmConsecLosses: this.dmConsecLosses,
       sequenceDone: this.sequenceDone,
       awaitingSettlement: this.awaitingSettlement,
@@ -790,7 +784,6 @@ class ServerBot {
     this.pendingVirtualContract = null;
     this.pendingEvenOddSignal = null;
     this.dmPendingSignal = null;
-    this.dmMartingaleStep = 0;
     this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
@@ -1510,12 +1503,7 @@ class ServerBot {
     confidence: number, qualityScore: number, state: SymbolState
   ) {
     const baseStake = this.config.stakeAmount;
-    let computedStake = baseStake;
-
-    if ((this.config.digitMatchMartingale ?? false) && this.dmMartingaleStep > 0) {
-      const multiplier = this.config.digitMatchMartingaleMultiplier ?? 1.5;
-      computedStake = Number((baseStake * Math.pow(multiplier, this.dmMartingaleStep)).toFixed(2));
-    }
+    const computedStake = baseStake; // Fixed stake — no martingale
 
     const isSandbox = this.config.demoMode || !this.config.apiToken;
     const currentBalance = isSandbox
@@ -1634,23 +1622,22 @@ class ServerBot {
 
     // Log trade
     const nextId = this.tradeLogs.length > 0 ? Math.max(...this.tradeLogs.map(l => l.id)) + 1 : 1;
-    const multiplierUsed = Number((stake / this.config.stakeAmount).toFixed(2));
     const newLog: TradeLog = {
       id: nextId,
       timestamp: new Date().toISOString(),
       symbol,
-      mode: `DigitMatch-${(this.config.digitMatchMartingale ?? false) ? "Martingale" : "Standard"}`,
+      mode: "DigitMatch",
       under_pct: qualityScore,
       signal_strength: signalStrength,
       barrier: targetDigit,
       stake,
-      multiplier: multiplierUsed,
+      multiplier: 1,
       outcome,
       profit,
       session_profit: nextSessionProfit,
       daily_trade_no: nextDailyTrades,
       consecutive_losses_before: this.dmConsecLosses,
-      in_recovery: this.dmMartingaleStep > 0,
+      in_recovery: false,
       target_digit: targetDigit
     };
     this.tradeLogs = [newLog, ...this.tradeLogs].slice(0, 200);
@@ -1662,32 +1649,29 @@ class ServerBot {
       tgNotifier.notifyTradeLoss(newLog);
     }
 
-    // Martingale / consecutive loss handling
+    // DigitMatch session TP/SL — checked after every trade
+    const slMultiple = this.config.digitMatchStopLossMultiple ?? 15;
+    const tpMultiple = this.config.digitMatchTakeProfitMultiple ?? 20;
+    const slThreshold = -(this.config.stakeAmount * slMultiple);
+    const tpThreshold = this.config.stakeAmount * tpMultiple;
+
     if (outcome === "WIN") {
       this.dmConsecLosses = 0;
-      this.dmMartingaleStep = 0;
-      this.showToast(`WIN! +$${profit.toFixed(2)} [DigitMatch] — Digit [${targetDigit}] matched! Stake reset.`, "green");
+      this.showToast(`WIN! +$${profit.toFixed(2)} [DigitMatch] — Digit [${targetDigit}] matched! Session P&L: +$${nextSessionProfit.toFixed(2)}`, "green");
     } else {
       this.dmConsecLosses += 1;
-      const maxSteps = this.config.digitMatchMartingaleMaxSteps ?? 5;
-      const consecLimit = this.config.digitMatchConsecLossLimit ?? 4;
+      this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [DigitMatch]. Session P&L: ${nextSessionProfit >= 0 ? "+" : ""}$${nextSessionProfit.toFixed(2)} (SL: $${slThreshold.toFixed(2)} / TP: +$${tpThreshold.toFixed(2)})`, "red");
+    }
 
-      if ((this.config.digitMatchMartingale ?? false) && this.dmMartingaleStep < maxSteps) {
-        this.dmMartingaleStep += 1;
-        const nextStake = Number((this.config.stakeAmount * Math.pow(this.config.digitMatchMartingaleMultiplier ?? 1.5, this.dmMartingaleStep)).toFixed(2));
-        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [DigitMatch]. Next stake: $${nextStake.toFixed(2)} (step ${this.dmMartingaleStep}/${maxSteps}).`, "red");
-      } else if ((this.config.digitMatchMartingale ?? false) && this.dmMartingaleStep >= maxSteps) {
-        this.dmMartingaleStep = 0;
-        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [DigitMatch]. Max martingale steps reached — stake reset.`, "red");
-      } else {
-        this.showToast(`LOSS -$${Math.abs(profit).toFixed(2)} [DigitMatch Standard]. Consecutive: ${this.dmConsecLosses}/${consecLimit}.`, "red");
-      }
-
-      if (this.dmConsecLosses >= consecLimit) {
-        this.haltBot(`DigitMatch: ${consecLimit} consecutive losses reached`);
-        this.showToast(`${consecLimit} consecutive losses — session halted for protection.`, "red");
-        return;
-      }
+    if (nextSessionProfit <= slThreshold) {
+      this.showToast(`Stop Loss hit — session loss $${Math.abs(nextSessionProfit).toFixed(2)} reached ${slMultiple}× stake limit. Halting.`, "red");
+      this.haltBot(`DigitMatch SL: session loss reached $${Math.abs(nextSessionProfit).toFixed(2)}`);
+      return;
+    }
+    if (nextSessionProfit >= tpThreshold) {
+      this.showToast(`Take Profit hit — +$${nextSessionProfit.toFixed(2)} reached ${tpMultiple}× stake target. Session complete!`, "green");
+      this.haltBot(`DigitMatch TP: session profit reached $${nextSessionProfit.toFixed(2)}`);
+      return;
     }
 
     const nextSeqDone = this.sequenceDone + 1;

@@ -40,10 +40,8 @@ export interface BotConfig {
   evenOddDirection?: "BOTH" | "EVEN" | "ODD";
   evenOddMinPatternRate?: number;
   // Digit Match strategy config
-  digitMatchMartingale?: boolean;
-  digitMatchMartingaleMultiplier?: number; // default 1.5
-  digitMatchMartingaleMaxSteps?: number;   // default 5
-  digitMatchConsecLossLimit?: number;      // default 4
+  digitMatchStopLossMultiple?: number;   // halt when session loss reaches stake × N (default 15)
+  digitMatchTakeProfitMultiple?: number; // stop when session profit reaches stake × N (default 20)
   appId: string;
   apiToken: string;
   demoMode: boolean; // if true, simulates virtual trades inside the bot

@@ -104,23 +104,29 @@ export default function StatsBar({
             )}
           </>
         ) : (
-          <div className="flex items-center gap-2">
-            {activeSymbolState && (
-              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${sc.badge}`}>
-                {signalStrength}
+          <>
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">
+                {isEvenOdd ? "EVEN / ODD DOMINANCE" : "UNDER DIGIT %"}
               </span>
-            )}
-            <span className="material-symbols-outlined text-[#775a19] text-sm">
-              {isEvenOdd ? "swap_horiz" : "trending_down"}
-            </span>
-          </div>
-        </div>
-        <div className={`text-[48px] leading-tight font-bold tracking-tighter ${sc.val}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-          {activeSymbolState ? `${dominantPct.toFixed(1)}%` : "—"}
-        </div>
-        <p className="text-[11px] text-[#4e4639]/70 leading-snug">
-          {activeSymbolState ? dominantLabel : "Awaiting active scanning data…"}
-        </p>
+              <div className="flex items-center gap-2">
+                {activeSymbolState && (
+                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${sc.badge}`}>
+                    {signalStrength}
+                  </span>
+                )}
+                <span className="material-symbols-outlined text-[#775a19] text-sm">
+                  {isEvenOdd ? "swap_horiz" : "trending_down"}
+                </span>
+              </div>
+            </div>
+            <div className={`text-[48px] leading-tight font-bold tracking-tighter ${sc.val}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+              {activeSymbolState ? `${dominantPct.toFixed(1)}%` : "—"}
+            </div>
+            <p className="text-[11px] text-[#4e4639]/70 leading-snug">
+              {activeSymbolState ? dominantLabel : "Awaiting active scanning data…"}
+            </p>
+          </>
         )}
       </div>
 

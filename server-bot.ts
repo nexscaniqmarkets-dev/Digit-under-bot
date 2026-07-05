@@ -1677,14 +1677,12 @@ class ServerBot {
     const nextSeqDone = this.sequenceDone + 1;
     this.sequenceDone = nextSeqDone;
 
-    const limitsTriggered = this.checkSessionLimits();
-    if (!limitsTriggered) {
-      this.dmPendingSignal = null;
-      this.activeSymbol = null;
-      this.botState = "STATE_SCANNING";
-      this.showToast("Digit Match cycle complete. Rescanning for best pair…", "blue");
-      this.selectDigitMatchSymbol();
-    }
+    // DigitMatch uses its own TP/SL — skip global checkSessionLimits to avoid conflict
+    this.dmPendingSignal = null;
+    this.activeSymbol = null;
+    this.botState = "STATE_SCANNING";
+    this.showToast("Digit Match cycle complete. Rescanning for best pair…", "blue");
+    this.selectDigitMatchSymbol();
   }
 
   private computeParityBacktest(buffer: number[]): { even: number; odd: number } {

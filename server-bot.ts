@@ -191,6 +191,7 @@ class ServerBot {
   // Digit Match session tracking
   private dmConsecLosses: number = 0;
   private dmPendingSignal: { symbol: string; dominantDigit: number; triggerDigit: number; confidence: number; qualityScore: number } | null = null;
+  private dmProLockedSymbol: string | null = null; // Pro mode: locked pair for entire session
 
   private symbolStates: Record<string, SymbolState> = {};
   private tradeLogs: TradeLog[] = [];
@@ -566,6 +567,7 @@ class ServerBot {
     this.pendingVirtualContract = null;
     this.pendingEvenOddSignal = null;
     this.dmPendingSignal = null;
+    this.dmProLockedSymbol = null;
     this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
@@ -632,6 +634,7 @@ class ServerBot {
     this.pendingVirtualContract = null;
     this.pendingEvenOddSignal = null;
     this.dmPendingSignal = null;
+    this.dmProLockedSymbol = null;
     this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
@@ -716,6 +719,7 @@ class ServerBot {
       inRecovery: this.inRecovery,
       evenOddCooldownSkipsRemaining: this.evenOddCooldownSkipsRemaining,
       dmConsecLosses: this.dmConsecLosses,
+      dmProLockedSymbol: this.dmProLockedSymbol,
       sequenceDone: this.sequenceDone,
       awaitingSettlement: this.awaitingSettlement,
       connectionStatus: this.connectionStatus,
@@ -795,11 +799,12 @@ class ServerBot {
     this.pendingVirtualContract = null;
     this.pendingEvenOddSignal = null;
     this.dmPendingSignal = null;
+    this.dmProLockedSymbol = null;
     this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
 
-    this.showToast(`Starting Automated Trading Session... Strategy: ${(this.config.strategy ?? "under").toUpperCase()}`, "green");
+
     tgNotifier.notifyBotStarted(
       this.accountEmail ?? "unknown",
       this.config.mode,
@@ -1591,13 +1596,21 @@ class ServerBot {
     const minBuffer = EVENODD_MIN_QUALIFYING_TICKS;
     const isProMode = (this.config.digitMatchMode ?? "Standard") === "Pro";
 
+    // Pro mode: if already locked on a pair this session, keep it
+    if (isProMode && this.dmProLockedSymbol) {
+      const lockedState = this.symbolStates[this.dmProLockedSymbol];
+      if (lockedState && !lockedState.isClosed) {
+        this.activeSymbol = this.dmProLockedSymbol;
+        this.botState = "STATE_CONFIRMING";
+        return;
+      }
+      // Locked pair went silent — fall through to re-select
+      this.dmProLockedSymbol = null;
+    }
+
     const candidates = Object.values(this.symbolStates).filter(s => {
       if (s.buffer.length < minBuffer || s.isClosed) return false;
-      if (isProMode) {
-        // Pro: require no tie and at least some quality score
-        return !s.dmProTieDetected && s.dmQualityScore > 0;
-      }
-      // Standard: require no tie and quality score
+      if (isProMode) return !s.dmProTieDetected && s.dmQualityScore > 0;
       return !s.dmTieDetected && s.dmTradeQualityScore > 0;
     });
 
@@ -1609,7 +1622,6 @@ class ServerBot {
       return;
     }
 
-    // Sort by mode-specific quality score
     candidates.sort((a, b) => isProMode
       ? b.dmQualityScore - a.dmQualityScore
       : b.dmTradeQualityScore - a.dmTradeQualityScore
@@ -1619,11 +1631,12 @@ class ServerBot {
     if (best.symbol !== this.activeSymbol) {
       this.dmPendingSignal = null;
       this.activeSymbol = best.symbol;
-      this.botState = "STATE_CONFIRMING";
 
       if (isProMode) {
+        // Lock this pair for the entire session
+        this.dmProLockedSymbol = best.symbol;
         this.showToast(
-          `[DM Pro] Locked on ${best.displayName} — Predict [${best.dmPredictionDigit}] (${best.dmPredictionFreq}%) | Trigger [${best.dmProTriggerDigit}] (${best.dmTriggerFreq}%) | Win rate: ${best.dmWinRate !== null ? best.dmWinRate + "%" : "building…"} | Score: ${best.dmQualityScore}%`,
+          `[DM Pro] Session locked on ${best.displayName} — Predict [${best.dmPredictionDigit}] (${best.dmPredictionFreq}%) | Trigger [${best.dmProTriggerDigit}] | W%: ${best.dmWinRate !== null ? best.dmWinRate + "%" : "building…"} | Score: ${best.dmQualityScore}%. Watching for trigger…`,
           "blue"
         );
       } else {
@@ -1632,6 +1645,7 @@ class ServerBot {
           "blue"
         );
       }
+      this.botState = "STATE_CONFIRMING";
     }
   }
 
@@ -1803,11 +1817,13 @@ class ServerBot {
 
     if (nextSessionProfit <= slThreshold) {
       this.showToast(`Stop Loss hit — session loss $${Math.abs(nextSessionProfit).toFixed(2)} reached ${slMultiple}× stake limit. Halting.`, "red");
+      this.dmProLockedSymbol = null; // clear lock — next session will re-select best pair
       this.haltBot(`DigitMatch SL: session loss reached $${Math.abs(nextSessionProfit).toFixed(2)}`);
       return;
     }
     if (nextSessionProfit >= tpThreshold) {
       this.showToast(`Take Profit hit — +$${nextSessionProfit.toFixed(2)} reached ${tpMultiple}× stake target. Session complete!`, "green");
+      this.dmProLockedSymbol = null; // clear lock — next session will re-select best pair
       this.haltBot(`DigitMatch TP: session profit reached $${nextSessionProfit.toFixed(2)}`);
       return;
     }
@@ -1815,12 +1831,28 @@ class ServerBot {
     const nextSeqDone = this.sequenceDone + 1;
     this.sequenceDone = nextSeqDone;
 
-    // DigitMatch uses its own TP/SL — skip global checkSessionLimits to avoid conflict
+    // DigitMatch uses its own TP/SL — skip global checkSessionLimits
     this.dmPendingSignal = null;
-    this.activeSymbol = null;
-    this.botState = "STATE_SCANNING";
-    this.showToast("Digit Match cycle complete. Rescanning for best pair…", "blue");
-    this.selectDigitMatchSymbol();
+    const isProMode = (this.config.digitMatchMode ?? "Standard") === "Pro";
+
+    if (isProMode && this.dmProLockedSymbol) {
+      // Pro mode: stay on the locked pair, just go back to confirming state
+      this.activeSymbol = this.dmProLockedSymbol;
+      this.botState = "STATE_CONFIRMING";
+      const lockedState = this.symbolStates[this.dmProLockedSymbol];
+      if (lockedState) {
+        this.showToast(
+          `[DM Pro] Trade complete. Staying on ${lockedState.displayName} — watching for trigger [${lockedState.dmProTriggerDigit ?? "—"}]…`,
+          "blue"
+        );
+      }
+    } else {
+      // Standard mode: rescan for best pair
+      this.activeSymbol = null;
+      this.botState = "STATE_SCANNING";
+      this.showToast("Digit Match cycle complete. Rescanning for best pair…", "blue");
+      this.selectDigitMatchSymbol();
+    }
   }
 
   private computeParityBacktest(buffer: number[]): { even: number; odd: number } {

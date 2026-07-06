@@ -40,8 +40,9 @@ export interface BotConfig {
   evenOddDirection?: "BOTH" | "EVEN" | "ODD";
   evenOddMinPatternRate?: number;
   // Digit Match strategy config
-  digitMatchStopLossMultiple?: number;   // halt when session loss reaches stake × N (default 15)
-  digitMatchTakeProfitMultiple?: number; // stop when session profit reaches stake × N (default 20)
+  digitMatchMode?: "Standard" | "Pro";
+  digitMatchStopLossMultiple?: number;
+  digitMatchTakeProfitMultiple?: number;
   appId: string;
   apiToken: string;
   demoMode: boolean; // if true, simulates virtual trades inside the bot
@@ -86,7 +87,7 @@ export interface SymbolState {
   oddPatternWinRate: number | null;
   evenPatternCount: number;
   oddPatternCount: number;
-  // Digit Match strategy — per-symbol smart analysis results (updated every tick)
+  // Digit Match Standard mode — per-symbol smart analysis
   dmDominantDigit: number | null;
   dmTriggerDigit: number | null;
   dmConfidence: number;
@@ -96,6 +97,17 @@ export interface SymbolState {
   dmMarketStability: "STABLE" | "VOLATILE" | "TRENDING" | null;
   dmRiskLevel: "LOW" | "MEDIUM" | "HIGH" | null;
   dmDominantHistory: (number | null)[];
+  // Digit Match Pro mode — frequency-based backtest
+  dmPredictionDigit: number | null;
+  dmProTriggerDigit: number | null;
+  dmPredictionFreq: number;
+  dmTriggerFreq: number;
+  dmWinRate: number | null;
+  dmTriggerCount: number;
+  dmWinCount: number;
+  dmProSignalReady: boolean;
+  dmProTieDetected: boolean;
+  dmQualityScore: number;
 }
 
 export interface TradeLog {

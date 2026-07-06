@@ -116,6 +116,24 @@ export default function ControlPanel({
               </button>
             ))}
           </div>
+        ) : (config.strategy ?? "under") === "digitmatch" ? (
+          <div className="bg-[#f5ede4] rounded-full p-1 flex items-center border border-[#d1c5b4]">
+            {(["Standard", "Pro"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                disabled={isRunning}
+                onClick={() => onConfigChange({ ...config, digitMatchMode: m })}
+                className={`flex-1 py-2 text-center rounded-full text-[10px] font-bold tracking-[0.12em] uppercase transition-all duration-200 cursor-pointer disabled:opacity-40 ${
+                  (config.digitMatchMode ?? "Standard") === m
+                    ? "bg-[#c5a059] text-[#4e3700] shadow-sm"
+                    : "text-[#4e4639] opacity-70 hover:opacity-100"
+                }`}
+              >
+                {m === "Standard" ? "STANDARD" : "PRO"}
+              </button>
+            ))}
+          </div>
         ) : config.showAllModes ? (
           <div className="grid grid-cols-2 gap-2">
             {(["Standard", "GradualRecovery", "GradualRecoveryPro", "GradualRecoveryLite", "GradualRecoveryProLite"] as const).map((m) => {

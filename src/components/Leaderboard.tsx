@@ -17,15 +17,15 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
   const symbolList = SYMBOLS.map(({ symbol, name }) => {
     const s = symbolStates[symbol];
     if (s) return s;
-    return { symbol, displayName: name, buffer: [], underPct: 0, overPct: 0, evenPct: 0, oddPct: 0, signalStrength: "SCANNING..." as const, confirmationCounter: 0, digitFreq: {}, digitPct: {}, lastDigit: null, qualified: false, tickCount: 0, lastTickTime: 0, isClosed: false, evenOddStreakType: null, evenOddStreakCount: 0, parityPatternEven: 0, parityPatternOdd: 0, dmDominantDigit: null, dmTriggerDigit: null, dmConfidence: 0, dmTradeQualityScore: 0, dmSignalReady: false, dmTieDetected: false, dmMarketStability: null, dmRiskLevel: null, dmDominantHistory: [] };
+    return { symbol, displayName: name, buffer: [], underPct: 0, overPct: 0, evenPct: 0, oddPct: 0, signalStrength: "SCANNING..." as const, confirmationCounter: 0, digitFreq: {}, digitPct: {}, lastDigit: null, qualified: false, tickCount: 0, lastTickTime: 0, isClosed: false, evenOddStreakType: null, evenOddStreakCount: 0, parityPatternEven: 0, parityPatternOdd: 0, dmDominantDigit: null, dmTriggerDigit: null, dmConfidence: 0, dmTradeQualityScore: 0, dmSignalReady: false, dmTieDetected: false, dmMarketStability: null, dmRiskLevel: null, dmDominantHistory: [], dmPredictionDigit: null, dmProTriggerDigit: null, dmPredictionFreq: 0, dmTriggerFreq: 0, dmWinRate: null, dmTriggerCount: 0, dmWinCount: 0, dmProSignalReady: false, dmProTieDetected: false, dmQualityScore: 0 };
   });
 
   const isEvenOdd = isEvenOddStrategy;
 
   const sorted = [...symbolList].sort((a, b) => {
     const aW = a.buffer.length >= qualifyingTicks, bW = b.buffer.length >= qualifyingTicks;
-    const aScore = isDigitMatch ? ((a as any).dmTradeQualityScore ?? 0) : isEvenOdd ? Math.max((a as any).evenPct ?? 0, (a as any).oddPct ?? 0) : a.underPct;
-    const bScore = isDigitMatch ? ((b as any).dmTradeQualityScore ?? 0) : isEvenOdd ? Math.max((b as any).evenPct ?? 0, (b as any).oddPct ?? 0) : b.underPct;
+    const aScore = isDigitMatch ? ((config.digitMatchMode ?? "Standard") === "Pro" ? ((a as any).dmQualityScore ?? 0) : ((a as any).dmTradeQualityScore ?? 0)) : isEvenOdd ? Math.max((a as any).evenPct ?? 0, (a as any).oddPct ?? 0) : a.underPct;
+    const bScore = isDigitMatch ? ((config.digitMatchMode ?? "Standard") === "Pro" ? ((b as any).dmQualityScore ?? 0) : ((b as any).dmTradeQualityScore ?? 0)) : isEvenOdd ? Math.max((b as any).evenPct ?? 0, (b as any).oddPct ?? 0) : b.underPct;
     if (aW && bW) return bScore - aScore;
     if (aW && !bW) return -1;
     if (!aW && bW) return 1;
@@ -73,7 +73,9 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
               <>
                 <th className="px-1 py-2 text-[9px] font-bold text-[#4e4639] uppercase tracking-[0.08em] text-center">Sig</th>
                 <th className="px-1 py-2 text-[9px] font-bold text-[#775a19] uppercase tracking-[0.08em] text-right">Digit</th>
-                <th className="px-1 py-2 text-[9px] font-bold text-[#7f7667] uppercase tracking-[0.08em] text-right">Conf%</th>
+                <th className="px-1 py-2 text-[9px] font-bold text-[#7f7667] uppercase tracking-[0.08em] text-right">
+                  {(config.digitMatchMode ?? "Standard") === "Pro" ? "W%" : "Conf%"}
+                </th>
               </>
             ) : isEvenOdd ? (
               <>
@@ -152,32 +154,44 @@ export default function Leaderboard({ symbolStates, activeSymbol, inspectSymbol,
                   <>
                     {/* Quality score */}
                     <td className="px-1 py-2 text-right">
-                      <span className={`text-[11px] ${!isWarmed ? "text-[#7f7667]" : (sym as any).dmTradeQualityScore >= 70 ? "text-[#2d7a3a] font-bold" : (sym as any).dmTradeQualityScore >= 50 ? "text-[#775a19] font-bold" : "text-[#7f7667]"}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                        {isWarmed && (sym as any).dmTradeQualityScore > 0 ? `${(sym as any).dmTradeQualityScore}%` : "—"}
-                      </span>
+                      {(() => {
+                        const isProMode = (config.digitMatchMode ?? "Standard") === "Pro";
+                        const score = isProMode ? (sym as any).dmQualityScore ?? 0 : (sym as any).dmTradeQualityScore ?? 0;
+                        const color = !isWarmed ? "text-[#7f7667]" : score >= 60 ? "text-[#2d7a3a] font-bold" : score >= 40 ? "text-[#775a19] font-bold" : "text-[#7f7667]";
+                        return <span className={`text-[11px] ${color}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>{isWarmed && score > 0 ? `${score}%` : "—"}</span>;
+                      })()}
                     </td>
                     {/* Signal */}
                     <td className="px-1 py-2 text-center">
                       {(() => {
                         if (!isWarmed) return <span className="text-[8px] text-[#7f7667]">…</span>;
-                        if ((sym as any).dmTieDetected) return <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700">TIE</span>;
-                        if ((sym as any).dmSignalReady) return <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-[#d5e0f7] text-[#485e8b]">RDY</span>;
-                        const ms = (sym as any).dmMarketStability;
-                        const sc = ms === "TRENDING" ? "text-[#775a19] bg-[#ffdea5]" : ms === "VOLATILE" ? "text-error bg-[#ffdad6]" : "text-[#7f7667] bg-[#f5ede4]";
-                        return <span className={`text-[8px] font-bold px-1 py-0.5 rounded uppercase ${sc}`}>{ms?.slice(0,3) ?? "—"}</span>;
+                        const isProMode = (config.digitMatchMode ?? "Standard") === "Pro";
+                        const tie = isProMode ? (sym as any).dmProTieDetected : (sym as any).dmTieDetected;
+                        const ready = isProMode ? (sym as any).dmProSignalReady : (sym as any).dmSignalReady;
+                        if (tie) return <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700">TIE</span>;
+                        if (ready) return <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-[#d5e0f7] text-[#485e8b]">RDY</span>;
+                        if (!isProMode) {
+                          const ms = (sym as any).dmMarketStability;
+                          const sc = ms === "TRENDING" ? "text-[#775a19] bg-[#ffdea5]" : ms === "VOLATILE" ? "text-error bg-[#ffdad6]" : "text-[#7f7667] bg-[#f5ede4]";
+                          return <span className={`text-[8px] font-bold px-1 py-0.5 rounded uppercase ${sc}`}>{ms?.slice(0,3) ?? "—"}</span>;
+                        }
+                        return <span className="text-[8px] text-[#7f7667] bg-[#f5ede4] px-1 py-0.5 rounded">WCH</span>;
                       })()}
                     </td>
-                    {/* Dominant digit */}
+                    {/* Predict digit */}
                     <td className="px-1 py-2 text-right">
                       <span className="text-[15px] font-black text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                        {isWarmed && (sym as any).dmDominantDigit !== null ? (sym as any).dmDominantDigit : "—"}
+                        {isWarmed ? ((config.digitMatchMode ?? "Standard") === "Pro" ? ((sym as any).dmPredictionDigit ?? "—") : ((sym as any).dmDominantDigit ?? "—")) : "—"}
                       </span>
                     </td>
-                    {/* Confidence */}
+                    {/* Conf% / Win rate */}
                     <td className="px-1 py-2 text-right">
-                      <span className={`text-[11px] ${!isWarmed ? "text-[#7f7667]" : (sym as any).dmConfidence >= 70 ? "text-[#2d7a3a] font-bold" : "text-[#7f7667]"}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                        {isWarmed && (sym as any).dmConfidence > 0 ? `${(sym as any).dmConfidence.toFixed(0)}%` : "—"}
-                      </span>
+                      {(() => {
+                        const isProMode = (config.digitMatchMode ?? "Standard") === "Pro";
+                        const val = isProMode ? (sym as any).dmWinRate : (sym as any).dmConfidence;
+                        const color = !isWarmed || val === null ? "text-[#7f7667]" : val >= 60 ? "text-[#2d7a3a] font-bold" : "text-[#7f7667]";
+                        return <span className={`text-[11px] ${color}`} style={{ fontFamily: "IBM Plex Mono, monospace" }}>{isWarmed && val !== null ? `${Number(val).toFixed(0)}%` : "—"}</span>;
+                      })()}
                     </td>
                   </>
                 ) : isEvenOdd ? (

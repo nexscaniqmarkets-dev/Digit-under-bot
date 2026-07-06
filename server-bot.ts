@@ -142,8 +142,9 @@ const DEFAULT_CONFIG: BotConfig = {
   evenOddCooldownDominance: 60,
   evenOddDirection: "BOTH",
   evenOddMinPatternRate: 55,
-  digitMatchStopLossMultiple: 15,  // halt when session loss reaches stake × 15
-  digitMatchTakeProfitMultiple: 20, // stop when session profit reaches stake × 20 // minimum pattern win rate % required before locking on a pair
+  digitMatchMode: "Standard",
+  digitMatchStopLossMultiple: 15,
+  digitMatchTakeProfitMultiple: 20, // minimum pattern win rate % required before locking on a pair
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -681,7 +682,17 @@ class ServerBot {
         dmTieDetected: false,
         dmMarketStability: null,
         dmRiskLevel: null,
-        dmDominantHistory: []
+        dmDominantHistory: [],
+        dmPredictionDigit: null,
+        dmProTriggerDigit: null,
+        dmPredictionFreq: 0,
+        dmTriggerFreq: 0,
+        dmWinRate: null,
+        dmTriggerCount: 0,
+        dmWinCount: 0,
+        dmProSignalReady: false,
+        dmProTieDetected: false,
+        dmQualityScore: 0
       };
     });
     this.symbolStates = initialStates;
@@ -1214,7 +1225,7 @@ class ServerBot {
       : { even: 0, odd: 0 };
 
     // Digit Match: compute smart analysis every tick for all symbols
-    let dmFields: Pick<SymbolState, "dmDominantDigit" | "dmTriggerDigit" | "dmConfidence" | "dmTradeQualityScore" | "dmSignalReady" | "dmTieDetected" | "dmMarketStability" | "dmRiskLevel" | "dmDominantHistory"> = {
+    let dmFields: Pick<SymbolState, "dmDominantDigit" | "dmTriggerDigit" | "dmConfidence" | "dmTradeQualityScore" | "dmSignalReady" | "dmTieDetected" | "dmMarketStability" | "dmRiskLevel" | "dmDominantHistory" | "dmPredictionDigit" | "dmProTriggerDigit" | "dmPredictionFreq" | "dmTriggerFreq" | "dmWinRate" | "dmTriggerCount" | "dmWinCount" | "dmProSignalReady" | "dmProTieDetected" | "dmQualityScore"> = {
       dmDominantDigit: sState.dmDominantDigit,
       dmTriggerDigit: sState.dmTriggerDigit,
       dmConfidence: sState.dmConfidence,
@@ -1223,7 +1234,17 @@ class ServerBot {
       dmTieDetected: sState.dmTieDetected,
       dmMarketStability: sState.dmMarketStability,
       dmRiskLevel: sState.dmRiskLevel,
-      dmDominantHistory: sState.dmDominantHistory ?? []
+      dmDominantHistory: sState.dmDominantHistory ?? [],
+      dmPredictionDigit: sState.dmPredictionDigit,
+      dmProTriggerDigit: sState.dmProTriggerDigit,
+      dmPredictionFreq: sState.dmPredictionFreq,
+      dmTriggerFreq: sState.dmTriggerFreq,
+      dmWinRate: sState.dmWinRate,
+      dmTriggerCount: sState.dmTriggerCount,
+      dmWinCount: sState.dmWinCount,
+      dmProSignalReady: false,
+      dmProTieDetected: sState.dmProTieDetected,
+      dmQualityScore: sState.dmQualityScore
     };
 
     if (updatedBuffer.length >= 15 && this.config.strategy === "digitmatch") {
@@ -1231,7 +1252,6 @@ class ServerBot {
       const prevHistory = (sState.dmDominantHistory ?? []).slice(-4);
       const newHistory = [...prevHistory, dmAnalysis.dominantDigit];
 
-      // Signal rules: confidence ≥22%, stable dominant for last 3 cycles, no conflict in last 5, not uniform
       const last3 = newHistory.slice(-3);
       const last5 = newHistory.slice(-5);
       const ruleConfidence = dmAnalysis.confidence >= 22;
@@ -1239,9 +1259,10 @@ class ServerBot {
       const ruleNotUniform = dmAnalysis.tradeQualityScore > 10;
       const ruleNoConflict5 = last5.every(d => d === dmAnalysis.dominantDigit || d === null);
       const signalReady = ruleConfidence && ruleStable3 && ruleNotUniform && ruleNoConflict5;
-
-      // Tie detection
       const tieDetected = this.checkDigitTie(updatedBuffer);
+
+      // Pro mode: frequency-based analysis
+      const proAnalysis = this.calculateDigitMatchProAnalysis(updatedBuffer, lastDigit);
 
       dmFields = {
         dmDominantDigit: dmAnalysis.dominantDigit,
@@ -1252,11 +1273,21 @@ class ServerBot {
         dmTieDetected: tieDetected,
         dmMarketStability: dmAnalysis.marketStability,
         dmRiskLevel: dmAnalysis.riskLevel,
-        dmDominantHistory: newHistory
+        dmDominantHistory: newHistory,
+        dmPredictionDigit: proAnalysis.predictionDigit,
+        dmProTriggerDigit: proAnalysis.triggerDigit,
+        dmPredictionFreq: proAnalysis.predictionFreq,
+        dmTriggerFreq: proAnalysis.triggerFreq,
+        dmWinRate: proAnalysis.winRate,
+        dmTriggerCount: proAnalysis.triggerCount,
+        dmWinCount: proAnalysis.winCount,
+        dmProSignalReady: proAnalysis.triggerFired && !proAnalysis.tieDetected,
+        dmProTieDetected: proAnalysis.tieDetected,
+        dmQualityScore: proAnalysis.qualityScore
       };
 
-      // If signal just fired on the active symbol, store it for processDigitMatchMachine
-      if (signalReady && !tieDetected && this.activeSymbol === symbol && this.botState === "STATE_CONFIRMING") {
+      // Standard mode signal
+      if (this.config.digitMatchMode !== "Pro" && signalReady && !tieDetected && this.activeSymbol === symbol && this.botState === "STATE_CONFIRMING") {
         if (!this.dmPendingSignal) {
           this.dmPendingSignal = {
             symbol,
@@ -1264,6 +1295,19 @@ class ServerBot {
             triggerDigit: dmAnalysis.triggerDigit,
             confidence: dmAnalysis.confidence,
             qualityScore: dmAnalysis.tradeQualityScore
+          };
+        }
+      }
+
+      // Pro mode signal — fires when trigger digit appears on this tick
+      if (this.config.digitMatchMode === "Pro" && proAnalysis.triggerFired && !proAnalysis.tieDetected && this.activeSymbol === symbol && this.botState === "STATE_CONFIRMING") {
+        if (!this.dmPendingSignal) {
+          this.dmPendingSignal = {
+            symbol,
+            dominantDigit: proAnalysis.predictionDigit,
+            triggerDigit: proAnalysis.triggerDigit,
+            confidence: proAnalysis.winRate ?? 0,
+            qualityScore: proAnalysis.qualityScore
           };
         }
       }
@@ -1409,6 +1453,75 @@ class ServerBot {
     return sorted[0] > 0 && sorted[0] === sorted[1];
   }
 
+  /**
+   * Digit Match Pro analysis:
+   * - Prediction digit = most frequent in buffer
+   * - Trigger digit = second most frequent
+   * - Win rate = how often trigger was followed by prediction digit historically
+   * - triggerFired = true if the latest tick IS the trigger digit
+   * - Tie = top two digits share same count (either for prediction or trigger slot)
+   */
+  private calculateDigitMatchProAnalysis(buffer: number[], latestDigit: number): {
+    predictionDigit: number;
+    triggerDigit: number;
+    predictionFreq: number;
+    triggerFreq: number;
+    winRate: number | null;
+    triggerCount: number;
+    winCount: number;
+    triggerFired: boolean;
+    tieDetected: boolean;
+    qualityScore: number;
+  } {
+    const len = buffer.length;
+    if (len < 10) {
+      return { predictionDigit: 0, triggerDigit: 1, predictionFreq: 0, triggerFreq: 0, winRate: null, triggerCount: 0, winCount: 0, triggerFired: false, tieDetected: false, qualityScore: 0 };
+    }
+
+    // Count frequencies
+    const counts = Array(10).fill(0);
+    buffer.forEach(d => { if (d >= 0 && d <= 9) counts[d]++; });
+
+    // Sort digits by frequency descending
+    const sorted = Array.from({ length: 10 }, (_, i) => i)
+      .sort((a, b) => counts[b] - counts[a]);
+
+    const predictionDigit = sorted[0];
+    const triggerDigit = sorted[1];
+    const predictionFreq = Number(((counts[predictionDigit] / len) * 100).toFixed(1));
+    const triggerFreq = Number(((counts[triggerDigit] / len) * 100).toFixed(1));
+
+    // Tie detection: top two share same count OR second and third share same count
+    const tieDetected = counts[sorted[0]] === counts[sorted[1]] || counts[sorted[1]] === counts[sorted[2]];
+
+    // Historical backtest: count trigger appearances and how many were followed by prediction
+    let triggerCount = 0;
+    let winCount = 0;
+    for (let i = 0; i < buffer.length - 1; i++) {
+      if (buffer[i] === triggerDigit) {
+        triggerCount++;
+        if (buffer[i + 1] === predictionDigit) winCount++;
+      }
+    }
+
+    const MIN_SAMPLES = 5;
+    const winRate = triggerCount >= MIN_SAMPLES
+      ? Number(((winCount / triggerCount) * 100).toFixed(1))
+      : null;
+
+    // triggerFired: latest digit is the trigger digit
+    const triggerFired = latestDigit === triggerDigit;
+
+    // Quality score: combination of prediction dominance + historical win rate
+    const dominanceScore = Math.min(100, (predictionFreq - 10) * 10); // 0 at 10%, 100 at 20%
+    const winRateScore = winRate !== null ? winRate : 50;
+    const qualityScore = triggerCount >= MIN_SAMPLES
+      ? Math.round((dominanceScore * 0.4) + (winRateScore * 0.6))
+      : Math.round(dominanceScore);
+
+    return { predictionDigit, triggerDigit, predictionFreq, triggerFreq, winRate, triggerCount, winCount, triggerFired, tieDetected, qualityScore };
+  }
+
   // ─── Digit Match Strategy Engine ──────────────────────────────────────────
 
   private processDigitMatchMachine(symbol: string, state: SymbolState) {
@@ -1444,7 +1557,10 @@ class ServerBot {
         this.dmPendingSignal = null;
 
         // Re-validate — still signal-ready and no tie?
-        if (!state.dmSignalReady || state.dmTieDetected) {
+        const isProMode = (this.config.digitMatchMode ?? "Standard") === "Pro";
+        const stillReady = isProMode ? state.dmProSignalReady : state.dmSignalReady;
+        const tieNow = isProMode ? state.dmProTieDetected : state.dmTieDetected;
+        if (!stillReady || tieNow) {
           this.showToast(`Signal invalidated on ${state.displayName}. Re-scanning.`, "grey");
           this.activeSymbol = null;
           this.botState = "STATE_SCANNING";
@@ -1455,8 +1571,10 @@ class ServerBot {
         this.botState = "STATE_TRADING";
         this.executeDigitMatchTrade(sig.symbol, sig.dominantDigit, sig.triggerDigit, sig.confidence, sig.qualityScore, state);
       } else {
-        // Continuously re-evaluate — drop pair if quality dropped or tie detected
-        if (state.dmTieDetected) {
+        // Continuously re-evaluate — drop pair if tie detected for active mode
+        const isProMode = (this.config.digitMatchMode ?? "Standard") === "Pro";
+        const tieActive = isProMode ? state.dmProTieDetected : state.dmTieDetected;
+        if (tieActive) {
           this.showToast(`Tie detected on ${state.displayName}. Re-scanning.`, "grey");
           this.activeSymbol = null;
           this.botState = "STATE_SCANNING";
@@ -1471,9 +1589,17 @@ class ServerBot {
     if (this.botState === "STATE_TRADING" || this.awaitingSettlement) return;
 
     const minBuffer = EVENODD_MIN_QUALIFYING_TICKS;
-    const candidates = Object.values(this.symbolStates).filter(s =>
-      s.buffer.length >= minBuffer && !s.isClosed && !s.dmTieDetected && s.dmTradeQualityScore > 0
-    );
+    const isProMode = (this.config.digitMatchMode ?? "Standard") === "Pro";
+
+    const candidates = Object.values(this.symbolStates).filter(s => {
+      if (s.buffer.length < minBuffer || s.isClosed) return false;
+      if (isProMode) {
+        // Pro: require no tie and at least some quality score
+        return !s.dmProTieDetected && s.dmQualityScore > 0;
+      }
+      // Standard: require no tie and quality score
+      return !s.dmTieDetected && s.dmTradeQualityScore > 0;
+    });
 
     if (candidates.length === 0) {
       if (this.activeSymbol !== null) {
@@ -1483,18 +1609,29 @@ class ServerBot {
       return;
     }
 
-    // Pick pair with highest trade quality score
-    candidates.sort((a, b) => b.dmTradeQualityScore - a.dmTradeQualityScore);
+    // Sort by mode-specific quality score
+    candidates.sort((a, b) => isProMode
+      ? b.dmQualityScore - a.dmQualityScore
+      : b.dmTradeQualityScore - a.dmTradeQualityScore
+    );
     const best = candidates[0];
 
     if (best.symbol !== this.activeSymbol) {
       this.dmPendingSignal = null;
       this.activeSymbol = best.symbol;
       this.botState = "STATE_CONFIRMING";
-      this.showToast(
-        `Digit Match locked on ${best.displayName} — Quality: ${best.dmTradeQualityScore}%, Digit [${best.dmDominantDigit}], Confidence: ${best.dmConfidence.toFixed(1)}%. Awaiting signal…`,
-        "blue"
-      );
+
+      if (isProMode) {
+        this.showToast(
+          `[DM Pro] Locked on ${best.displayName} — Predict [${best.dmPredictionDigit}] (${best.dmPredictionFreq}%) | Trigger [${best.dmProTriggerDigit}] (${best.dmTriggerFreq}%) | Win rate: ${best.dmWinRate !== null ? best.dmWinRate + "%" : "building…"} | Score: ${best.dmQualityScore}%`,
+          "blue"
+        );
+      } else {
+        this.showToast(
+          `[DM Standard] Locked on ${best.displayName} — Quality: ${best.dmTradeQualityScore}%, Digit [${best.dmDominantDigit}], Confidence: ${best.dmConfidence.toFixed(1)}%. Awaiting signal…`,
+          "blue"
+        );
+      }
     }
   }
 
@@ -1517,8 +1654,9 @@ class ServerBot {
     }
 
     this.awaitingSettlement = true;
+    const modeLabel = (this.config.digitMatchMode ?? "Standard") === "Pro" ? "DM Pro" : "DM Standard";
     this.showToast(
-      `[DIGITMATCH] ${state.displayName} — Predict digit [${dominantDigit}] | Trigger [${triggerDigit}] | Confidence: ${confidence.toFixed(1)}% | Stake: $${computedStake.toFixed(2)}`,
+      `[${modeLabel}] ${state.displayName} — Predict [${dominantDigit}] | Trigger [${triggerDigit}] | ${(this.config.digitMatchMode ?? "Standard") === "Pro" ? `Win rate: ${confidence.toFixed(0)}%` : `Confidence: ${confidence.toFixed(1)}%`} | Stake: $${computedStake.toFixed(2)}`,
       "blue"
     );
 
@@ -1626,7 +1764,7 @@ class ServerBot {
       id: nextId,
       timestamp: new Date().toISOString(),
       symbol,
-      mode: "DigitMatch",
+      mode: `DigitMatch-${this.config.digitMatchMode ?? "Standard"}`,
       under_pct: qualityScore,
       signal_strength: signalStrength,
       barrier: targetDigit,

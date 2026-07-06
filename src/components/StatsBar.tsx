@@ -62,12 +62,14 @@ export default function StatsBar({
         {isDigitMatch ? (
           <>
             <div className="flex justify-between items-center">
-              <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">DIGIT MATCH ANALYSIS</span>
+              <span className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.15em]">
+                DIGIT MATCH {(config.digitMatchMode ?? "Standard") === "Pro" ? "PRO" : "STANDARD"}
+              </span>
               <div className="flex items-center gap-2">
-                {activeSymbolState?.dmTieDetected && (
+                {((config.digitMatchMode ?? "Standard") === "Pro" ? activeSymbolState?.dmProTieDetected : activeSymbolState?.dmTieDetected) && (
                   <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider bg-amber-100 text-amber-700 border-amber-300">TIE</span>
                 )}
-                {activeSymbolState?.dmMarketStability && (
+                {(config.digitMatchMode ?? "Standard") === "Standard" && activeSymbolState?.dmMarketStability && (
                   <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider bg-[#f0e8df] text-[#4e4639] border-[#d1c5b4]">
                     {activeSymbolState.dmMarketStability}
                   </span>
@@ -75,31 +77,62 @@ export default function StatsBar({
                 <span className="material-symbols-outlined text-[#775a19] text-sm">target</span>
               </div>
             </div>
-            <div className="flex items-end gap-3 mt-1">
-              <div>
-                <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Predict</div>
-                <div className="text-[56px] leading-none font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                  {activeSymbolState?.dmDominantDigit !== null && activeSymbolState?.dmDominantDigit !== undefined ? activeSymbolState.dmDominantDigit : "—"}
+            {(config.digitMatchMode ?? "Standard") === "Pro" ? (
+              <div className="flex items-end gap-3 mt-1">
+                <div>
+                  <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Predict</div>
+                  <div className="text-[56px] leading-none font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                    {activeSymbolState?.dmPredictionDigit !== null && activeSymbolState?.dmPredictionDigit !== undefined ? activeSymbolState.dmPredictionDigit : "—"}
+                  </div>
+                  <div className="text-[10px] text-[#7f7667]">{activeSymbolState?.dmPredictionFreq ?? 0}% freq</div>
+                </div>
+                <div className="mb-4">
+                  <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Trigger</div>
+                  <div className="text-[32px] leading-none font-bold text-[#4e4639]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                    {activeSymbolState?.dmProTriggerDigit !== null && activeSymbolState?.dmProTriggerDigit !== undefined ? activeSymbolState.dmProTriggerDigit : "—"}
+                  </div>
+                  <div className="text-[10px] text-[#7f7667]">{activeSymbolState?.dmTriggerFreq ?? 0}% freq</div>
+                </div>
+                <div className="mb-2 ml-auto text-right">
+                  <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Win Rate</div>
+                  <div className="text-[28px] leading-none font-bold" style={{ fontFamily: "IBM Plex Mono, monospace", color: (activeSymbolState?.dmWinRate ?? 0) >= 60 ? "#2d7a3a" : (activeSymbolState?.dmWinRate ?? 0) >= 45 ? "#775a19" : "#7f7667" }}>
+                    {activeSymbolState?.dmWinRate !== null && activeSymbolState?.dmWinRate !== undefined ? `${activeSymbolState.dmWinRate}%` : "—"}
+                  </div>
+                  <div className="text-[9px] text-[#7f7667]">{activeSymbolState?.dmTriggerCount ?? 0} samples</div>
                 </div>
               </div>
-              <div className="mb-2">
-                <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Trigger</div>
-                <div className="text-[32px] leading-none font-bold text-[#4e4639]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
-                  {activeSymbolState?.dmTriggerDigit !== null && activeSymbolState?.dmTriggerDigit !== undefined ? activeSymbolState.dmTriggerDigit : "—"}
+            ) : (
+              <div className="flex items-end gap-3 mt-1">
+                <div>
+                  <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Predict</div>
+                  <div className="text-[56px] leading-none font-bold text-[#775a19]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                    {activeSymbolState?.dmDominantDigit !== null && activeSymbolState?.dmDominantDigit !== undefined ? activeSymbolState.dmDominantDigit : "—"}
+                  </div>
+                </div>
+                <div className="mb-2">
+                  <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Trigger</div>
+                  <div className="text-[32px] leading-none font-bold text-[#4e4639]" style={{ fontFamily: "IBM Plex Mono, monospace" }}>
+                    {activeSymbolState?.dmTriggerDigit !== null && activeSymbolState?.dmTriggerDigit !== undefined ? activeSymbolState.dmTriggerDigit : "—"}
+                  </div>
+                </div>
+                <div className="mb-2 ml-auto text-right">
+                  <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Quality</div>
+                  <div className="text-[28px] leading-none font-bold" style={{ fontFamily: "IBM Plex Mono, monospace", color: (activeSymbolState?.dmTradeQualityScore ?? 0) >= 70 ? "#2d7a3a" : (activeSymbolState?.dmTradeQualityScore ?? 0) >= 50 ? "#775a19" : "#7f7667" }}>
+                    {activeSymbolState ? `${activeSymbolState.dmTradeQualityScore}%` : "—"}
+                  </div>
+                  <div className="text-[9px] text-[#7f7667]">Confidence: {activeSymbolState ? `${activeSymbolState.dmConfidence.toFixed(1)}%` : "—"}</div>
                 </div>
               </div>
-              <div className="mb-2 ml-auto text-right">
-                <div className="text-[10px] text-[#7f7667] uppercase tracking-wider">Quality</div>
-                <div className="text-[28px] leading-none font-bold" style={{ fontFamily: "IBM Plex Mono, monospace", color: (activeSymbolState?.dmTradeQualityScore ?? 0) >= 70 ? "#2d7a3a" : (activeSymbolState?.dmTradeQualityScore ?? 0) >= 50 ? "#775a19" : "#7f7667" }}>
-                  {activeSymbolState ? `${activeSymbolState.dmTradeQualityScore}%` : "—"}
-                </div>
-                <div className="text-[9px] text-[#7f7667]">Confidence: {activeSymbolState ? `${activeSymbolState.dmConfidence.toFixed(1)}%` : "—"}</div>
-              </div>
-            </div>
-            {activeSymbolState?.dmRiskLevel && (
+            )}
+            {(config.digitMatchMode ?? "Standard") === "Standard" && activeSymbolState?.dmRiskLevel && (
               <p className="text-[11px] text-[#4e4639]/70">
                 Risk: <span className={activeSymbolState.dmRiskLevel === "LOW" ? "text-success font-bold" : activeSymbolState.dmRiskLevel === "HIGH" ? "text-error font-bold" : "text-amber-600 font-bold"}>{activeSymbolState.dmRiskLevel}</span>
                 {activeSymbolState.dmSignalReady ? " · Signal READY ✓" : " · Awaiting signal…"}
+              </p>
+            )}
+            {(config.digitMatchMode ?? "Standard") === "Pro" && (
+              <p className="text-[11px] text-[#4e4639]/70">
+                {activeSymbolState?.dmProTieDetected ? "⚠ Tie detected — waiting for resolution" : activeSymbolState?.dmProSignalReady ? "🎯 Trigger fired — placing trade…" : `Watching for trigger digit [${activeSymbolState?.dmProTriggerDigit ?? "—"}]…`}
               </p>
             )}
           </>

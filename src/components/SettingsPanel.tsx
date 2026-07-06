@@ -262,6 +262,29 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
               {/* DigitMatch sub-options */}
               {(formData.strategy ?? "under") === "digitmatch" && (
                 <>
+                  {/* Mode selector */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold text-[#4e4639] uppercase tracking-[0.12em]">DIGIT MATCH MODE</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { value: "Standard", label: "STANDARD", desc: "Weighted scoring engine — 90 digit combinations" },
+                        { value: "Pro", label: "PRO", desc: "Frequency + historical win rate — trigger-based" },
+                      ].map(({ value, label, desc }) => (
+                        <button
+                          key={value} type="button" disabled={isRunning}
+                          onClick={() => set("digitMatchMode", value as any)}
+                          className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl border transition-all cursor-pointer disabled:opacity-40 ${
+                            (formData.digitMatchMode ?? "Standard") === value
+                              ? "border-[#775a19] bg-[#ffdea5] text-[#4e3700]"
+                              : "border-[#d1c5b4] bg-[#f5ede4] text-[#4e4639] hover:border-[#c5a059]"
+                          }`}
+                        >
+                          <span className="text-[11px] font-black uppercase tracking-wider">{label}</span>
+                          <span className="text-[9px] opacity-70 text-center leading-tight">{desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   {/* Stop Loss */}
                   <div className="flex flex-col gap-2">
                     <div className="flex justify-between items-center">

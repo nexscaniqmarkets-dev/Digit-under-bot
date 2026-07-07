@@ -192,6 +192,7 @@ class ServerBot {
   private dmConsecLosses: number = 0;
   private dmPendingSignal: { symbol: string; dominantDigit: number; triggerDigit: number; confidence: number; qualityScore: number } | null = null;
   private dmProLockedSymbol: string | null = null; // Pro mode: locked pair for entire session
+  private dmTieCooldownUntil: number = 0; // timestamp when tie cooldown expires (0 = no cooldown)
 
   private symbolStates: Record<string, SymbolState> = {};
   private tradeLogs: TradeLog[] = [];
@@ -568,6 +569,7 @@ class ServerBot {
     this.pendingEvenOddSignal = null;
     this.dmPendingSignal = null;
     this.dmProLockedSymbol = null;
+    this.dmTieCooldownUntil = 0;
     this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
@@ -635,6 +637,7 @@ class ServerBot {
     this.pendingEvenOddSignal = null;
     this.dmPendingSignal = null;
     this.dmProLockedSymbol = null;
+    this.dmTieCooldownUntil = 0;
     this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
@@ -695,7 +698,8 @@ class ServerBot {
         dmWinCount: 0,
         dmProSignalReady: false,
         dmProTieDetected: false,
-        dmQualityScore: 0
+        dmQualityScore: 0,
+        dmWasTied: false
       };
     });
     this.symbolStates = initialStates;
@@ -800,6 +804,7 @@ class ServerBot {
     this.pendingEvenOddSignal = null;
     this.dmPendingSignal = null;
     this.dmProLockedSymbol = null;
+    this.dmTieCooldownUntil = 0;
     this.dmConsecLosses = 0;
     this.showSummary = false;
     this.sessionStats = null;
@@ -1230,7 +1235,7 @@ class ServerBot {
       : { even: 0, odd: 0 };
 
     // Digit Match: compute smart analysis every tick for all symbols
-    let dmFields: Pick<SymbolState, "dmDominantDigit" | "dmTriggerDigit" | "dmConfidence" | "dmTradeQualityScore" | "dmSignalReady" | "dmTieDetected" | "dmMarketStability" | "dmRiskLevel" | "dmDominantHistory" | "dmPredictionDigit" | "dmProTriggerDigit" | "dmPredictionFreq" | "dmTriggerFreq" | "dmWinRate" | "dmTriggerCount" | "dmWinCount" | "dmProSignalReady" | "dmProTieDetected" | "dmQualityScore"> = {
+    let dmFields: Pick<SymbolState, "dmDominantDigit" | "dmTriggerDigit" | "dmConfidence" | "dmTradeQualityScore" | "dmSignalReady" | "dmTieDetected" | "dmMarketStability" | "dmRiskLevel" | "dmDominantHistory" | "dmPredictionDigit" | "dmProTriggerDigit" | "dmPredictionFreq" | "dmTriggerFreq" | "dmWinRate" | "dmTriggerCount" | "dmWinCount" | "dmProSignalReady" | "dmProTieDetected" | "dmQualityScore" | "dmWasTied"> = {
       dmDominantDigit: sState.dmDominantDigit,
       dmTriggerDigit: sState.dmTriggerDigit,
       dmConfidence: sState.dmConfidence,
@@ -1249,7 +1254,8 @@ class ServerBot {
       dmWinCount: sState.dmWinCount,
       dmProSignalReady: false,
       dmProTieDetected: sState.dmProTieDetected,
-      dmQualityScore: sState.dmQualityScore
+      dmQualityScore: sState.dmQualityScore,
+      dmWasTied: sState.dmWasTied ?? false
     };
 
     if (updatedBuffer.length >= 15 && this.config.strategy === "digitmatch") {
@@ -1288,7 +1294,8 @@ class ServerBot {
         dmWinCount: proAnalysis.winCount,
         dmProSignalReady: proAnalysis.triggerFired && !proAnalysis.tieDetected,
         dmProTieDetected: proAnalysis.tieDetected,
-        dmQualityScore: proAnalysis.qualityScore
+        dmQualityScore: proAnalysis.qualityScore,
+        dmWasTied: sState.dmProTieDetected || sState.dmTieDetected // was tied on previous tick
       };
 
       // Standard mode signal
@@ -1544,7 +1551,6 @@ class ServerBot {
 
     if (this.botState === "STATE_IDLE" || this.botState === "STATE_STOPPED") return;
 
-    // Virtual settlement
     if (this.awaitingSettlement && this.pendingVirtualContract && this.pendingVirtualContract.symbol === symbol) {
       this.handleDigitMatchVirtualSettled(state.lastDigit!);
       return;
@@ -1555,37 +1561,50 @@ class ServerBot {
       return;
     }
 
-    // Locked on this symbol — execute when signal fires
     if (this.botState === "STATE_CONFIRMING" && this.activeSymbol === symbol) {
+      const isProMode = (this.config.digitMatchMode ?? "Standard") === "Pro";
+      const tieNow = isProMode ? state.dmProTieDetected : state.dmTieDetected;
+      const wasTied = state.dmWasTied;
+      const now = Date.now();
+
+      // ── Tie just broke → start 30s cooldown ───────────────────────────────
+      if (!tieNow && wasTied && this.dmTieCooldownUntil === 0) {
+        this.dmTieCooldownUntil = now + 30000;
+        this.dmPendingSignal = null;
+        this.showToast(`Tie resolved on ${state.displayName}. 30s cooldown before resuming.`, "grey");
+        return;
+      }
+
+      // ── In cooldown ────────────────────────────────────────────────────────
+      if (this.dmTieCooldownUntil > 0) {
+        if (now < this.dmTieCooldownUntil) {
+          return; // still cooling down
+        }
+        this.dmTieCooldownUntil = 0;
+        this.showToast(`Cooldown complete on ${state.displayName}. Watching for trigger [${isProMode ? state.dmProTriggerDigit : state.dmTriggerDigit}]…`, "blue");
+        return;
+      }
+
+      // ── Tie currently active ───────────────────────────────────────────────
+      if (tieNow) {
+        if (!wasTied) {
+          this.dmPendingSignal = null;
+          this.showToast(`Tie detected on ${state.displayName}. Pausing — 30s cooldown starts when tie breaks.`, "grey");
+        }
+        return;
+      }
+
+      // ── Normal signal handling ─────────────────────────────────────────────
       if (this.dmPendingSignal && this.dmPendingSignal.symbol === symbol) {
         const sig = this.dmPendingSignal;
         this.dmPendingSignal = null;
-
-        // Re-validate — still signal-ready and no tie?
-        const isProMode = (this.config.digitMatchMode ?? "Standard") === "Pro";
         const stillReady = isProMode ? state.dmProSignalReady : state.dmSignalReady;
-        const tieNow = isProMode ? state.dmProTieDetected : state.dmTieDetected;
         if (!stillReady || tieNow) {
-          this.showToast(`Signal invalidated on ${state.displayName}. Re-scanning.`, "grey");
-          this.activeSymbol = null;
-          this.botState = "STATE_SCANNING";
-          this.selectDigitMatchSymbol();
+          this.showToast(`Signal invalidated on ${state.displayName}. Waiting for next trigger.`, "grey");
           return;
         }
-
         this.botState = "STATE_TRADING";
         this.executeDigitMatchTrade(sig.symbol, sig.dominantDigit, sig.triggerDigit, sig.confidence, sig.qualityScore, state);
-      } else {
-        // Continuously re-evaluate — drop pair if tie detected for active mode
-        const isProMode = (this.config.digitMatchMode ?? "Standard") === "Pro";
-        const tieActive = isProMode ? state.dmProTieDetected : state.dmTieDetected;
-        if (tieActive) {
-          this.showToast(`Tie detected on ${state.displayName}. Re-scanning.`, "grey");
-          this.activeSymbol = null;
-          this.botState = "STATE_SCANNING";
-          this.dmPendingSignal = null;
-          this.selectDigitMatchSymbol();
-        }
       }
     }
   }
@@ -1606,6 +1625,7 @@ class ServerBot {
       }
       // Locked pair went silent — fall through to re-select
       this.dmProLockedSymbol = null;
+      this.dmTieCooldownUntil = 0;
     }
 
     const candidates = Object.values(this.symbolStates).filter(s => {
@@ -1817,13 +1837,15 @@ class ServerBot {
 
     if (nextSessionProfit <= slThreshold) {
       this.showToast(`Stop Loss hit — session loss $${Math.abs(nextSessionProfit).toFixed(2)} reached ${slMultiple}× stake limit. Halting.`, "red");
-      this.dmProLockedSymbol = null; // clear lock — next session will re-select best pair
+      this.dmProLockedSymbol = null;
+    this.dmTieCooldownUntil = 0; // clear lock — next session will re-select best pair
       this.haltBot(`DigitMatch SL: session loss reached $${Math.abs(nextSessionProfit).toFixed(2)}`);
       return;
     }
     if (nextSessionProfit >= tpThreshold) {
       this.showToast(`Take Profit hit — +$${nextSessionProfit.toFixed(2)} reached ${tpMultiple}× stake target. Session complete!`, "green");
-      this.dmProLockedSymbol = null; // clear lock — next session will re-select best pair
+      this.dmProLockedSymbol = null;
+    this.dmTieCooldownUntil = 0; // clear lock — next session will re-select best pair
       this.haltBot(`DigitMatch TP: session profit reached $${nextSessionProfit.toFixed(2)}`);
       return;
     }

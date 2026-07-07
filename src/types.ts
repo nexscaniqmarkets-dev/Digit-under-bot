@@ -108,6 +108,7 @@ export interface SymbolState {
   dmProSignalReady: boolean;
   dmProTieDetected: boolean;
   dmQualityScore: number;
+  dmWasTied: boolean; // tracks previous tie state to detect when tie breaks
 }
 
 export interface TradeLog {

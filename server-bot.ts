@@ -504,7 +504,8 @@ class ServerBot {
 
     this.derivWsUrl = wsUrl;
     this.accountCurrency = target.currency;
-    this.balance = null; // will repopulate from the new account's authorize response
+    this.isRealAccount = targetType === "real";
+    this.balance = null; // will repopulate from the new account's balance subscription
     this.connectWebSocket();
 
     return { success: true };
@@ -630,7 +631,10 @@ class ServerBot {
     // Set balance to null — will be populated from Deriv WebSocket authorize response
     this.balance = null;
     this.accountEmail = null;
-    this.isRealAccount = false;
+    // NOTE: do NOT reset isRealAccount to false here. It was already set correctly
+    // above from `isReal`. OTP-authenticated connections (the normal path) never send/
+    // receive an "authorize" message, so there is nothing downstream to correct a
+    // false reset back to true — it would stay wrong for the whole session.
 
     this.showToast(`Logged in successfully: ${email}`, "green");
     this.connectWebSocket();

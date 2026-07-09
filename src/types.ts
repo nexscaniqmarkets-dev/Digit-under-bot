@@ -43,6 +43,7 @@ export interface BotConfig {
   digitMatchMode?: "Standard" | "Pro";
   digitMatchStopLossMultiple?: number;
   digitMatchTakeProfitMultiple?: number;
+  digitMatchCooldownAfterTieEnabled?: boolean; // 30s stabilization cooldown after a tie breaks — applies to Standard and Pro
   appId: string;
   apiToken: string;
   demoMode: boolean; // if true, simulates virtual trades inside the bot

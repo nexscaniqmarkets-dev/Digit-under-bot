@@ -327,6 +327,22 @@ export default function SettingsPanel({ config, saveConfig, isRunning }: Setting
                     </div>
                   </div>
 
+                  {/* Tie cooldown toggle — applies to Standard and Pro */}
+                  <div className="flex items-center justify-between py-2 border-t border-[#d1c5b4]/30">
+                    <div>
+                      <span className="text-[13px] text-[#1e1b16] font-semibold uppercase tracking-[0.04em]">30S COOLDOWN AFTER TIE</span>
+                      <p className="text-[10px] text-[#7f7667] mt-0.5">
+                        {(formData.digitMatchCooldownAfterTieEnabled ?? true)
+                          ? "Waits 30s after a tie breaks before resuming"
+                          : "Resumes immediately once a tie breaks"}
+                      </p>
+                    </div>
+                    <div
+                      className={`custom-switch ${(formData.digitMatchCooldownAfterTieEnabled ?? true) ? "switch-active" : ""}`}
+                      onClick={() => !isRunning && set("digitMatchCooldownAfterTieEnabled", !(formData.digitMatchCooldownAfterTieEnabled ?? true))}
+                    />
+                  </div>
+
                   <div className="text-[9px] text-[#7f7667] bg-[#f0e8df] rounded-lg px-2.5 py-2 leading-relaxed">
                     At $1 stake: SL halts at -${((formData.stakeAmount ?? 1) * (formData.digitMatchStopLossMultiple ?? 15)).toFixed(2)} session loss · TP stops at +${((formData.stakeAmount ?? 1) * (formData.digitMatchTakeProfitMultiple ?? 20)).toFixed(2)} session profit
                   </div>

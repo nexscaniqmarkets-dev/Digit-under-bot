@@ -145,6 +145,7 @@ const DEFAULT_CONFIG: BotConfig = {
   digitMatchMode: "Standard",
   digitMatchStopLossMultiple: 15,
   digitMatchTakeProfitMultiple: 20, // minimum pattern win rate % required before locking on a pair
+  digitMatchCooldownAfterTieEnabled: true,
   appId: "1089",
   apiToken: "",
   demoMode: true,
@@ -1653,13 +1654,18 @@ class ServerBot {
       const tieNow = isProMode ? state.dmProTieDetected : state.dmTieDetected;
       const wasTied = state.dmWasTied;
       const now = Date.now();
+      const cooldownEnabled = this.config.digitMatchCooldownAfterTieEnabled ?? true;
 
-      // ── Tie just broke → start 30s cooldown ───────────────────────────────
+      // ── Tie just broke ──────────────────────────────────────────────────────
       if (!tieNow && wasTied && this.dmTieCooldownUntil === 0) {
-        this.dmTieCooldownUntil = now + 30000;
         this.dmPendingSignal = null;
-        this.showToast(`Tie resolved on ${state.displayName}. 30s cooldown before resuming.`, "grey");
-        return;
+        if (cooldownEnabled) {
+          this.dmTieCooldownUntil = now + 30000;
+          this.showToast(`Tie resolved on ${state.displayName}. 30s cooldown before resuming.`, "grey");
+          return;
+        }
+        // Cooldown disabled — resume immediately
+        this.showToast(`Tie resolved on ${state.displayName}. Watching for trigger [${isProMode ? state.dmProTriggerDigit : state.dmTriggerDigit}]…`, "blue");
       }
 
       // ── In cooldown ────────────────────────────────────────────────────────
@@ -1676,7 +1682,7 @@ class ServerBot {
       if (tieNow) {
         if (!wasTied) {
           this.dmPendingSignal = null;
-          this.showToast(`Tie detected on ${state.displayName}. Pausing — 30s cooldown starts when tie breaks.`, "grey");
+          this.showToast(`Tie detected on ${state.displayName}. Pausing — trading resumes when tie breaks.`, "grey");
         }
         return;
       }

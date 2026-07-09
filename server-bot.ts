@@ -894,6 +894,28 @@ class ServerBot {
     this.haltBot("Manually deactivated by user");
   }
 
+  /**
+   * Auto-reconnect after an unexpected disconnect. The OTP-authenticated WebSocket URL
+   * is single-use — reusing it after the connection drops fails immediately and causes
+   * a fast connect/fail/close loop. So if we're on an OTP-based session, fetch a fresh
+   * OTP URL for whichever account (real/demo) is currently active before reconnecting.
+   */
+  private async reconnectWithFreshOtp() {
+    const token = this.config.apiToken;
+    const target = this.isRealAccount ? this.derivRealAccount : this.derivDemoAccount;
+
+    if (this.derivWsUrl && token && target) {
+      const clientId = process.env.DERIV_CLIENT_ID || "33yYUuxyhTQPYawa2VVdV";
+      const freshUrl = await this.fetchOtpWsUrl(target.accountId, token, clientId);
+      if (freshUrl) {
+        this.derivWsUrl = freshUrl;
+      }
+      // If refresh fails, fall through and try the old URL once — connectWebSocket()
+      // will trigger another retry cycle if it also fails.
+    }
+    this.connectWebSocket();
+  }
+
   private connectWebSocket() {
     if (this.ws) {
       try {
@@ -984,7 +1006,7 @@ class ServerBot {
           if (count <= 0) {
             if (this.reconnectInterval) clearInterval(this.reconnectInterval);
             this.reconnectCountdown = null;
-            this.connectWebSocket();
+            this.reconnectWithFreshOtp();
           }
         }, 1000);
       } else {
@@ -999,7 +1021,7 @@ class ServerBot {
           if (count <= 0) {
             if (this.reconnectInterval) clearInterval(this.reconnectInterval);
             this.reconnectCountdown = null;
-            this.connectWebSocket();
+            this.reconnectWithFreshOtp();
           }
         }, 1000);
       }

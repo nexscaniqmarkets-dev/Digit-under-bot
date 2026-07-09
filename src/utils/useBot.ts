@@ -32,6 +32,8 @@ export function useBot() {
   const [balance, setBalance] = useState<string | null>(null);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [isRealAccount, setIsRealAccount] = useState<boolean>(false);
+  const [hasRealDerivAccount, setHasRealDerivAccount] = useState<boolean>(false);
+  const [hasDemoDerivAccount, setHasDemoDerivAccount] = useState<boolean>(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
   const [sessionProfit, setSessionProfit] = useState<number>(0);
@@ -90,6 +92,8 @@ export function useBot() {
         if (data.balance !== undefined) setBalance(data.balance);
         setAccountEmail(data.accountEmail);
         setIsRealAccount(data.isRealAccount);
+        setHasRealDerivAccount(!!data.hasRealDerivAccount);
+        setHasDemoDerivAccount(!!data.hasDemoDerivAccount);
         setCurrentUserEmail(data.currentUserEmail);
         setSessionProfit(data.sessionProfit);
         setDailyTradesCount(data.dailyTradesCount);
@@ -258,6 +262,22 @@ export function useBot() {
     }
   };
 
+  // Switch between the real and demo Deriv account linked to the same token
+  // (does not require re-entering the API token)
+  const switchDerivAccountType = async (accountType: "real" | "demo") => {
+    try {
+      const res = await postJSON("/api/auth/switch-deriv-account-type", { accountType });
+      const data = await res.json();
+      if (data.success) {
+        setIsRealAccount(data.state?.isRealAccount ?? (accountType === "real"));
+        if (data.state?.balance !== undefined) setBalance(data.state.balance);
+      }
+      return data;
+    } catch (e) {
+      return { success: false, error: "Switch failed." };
+    }
+  };
+
   const logout = async (telegramId?: string) => {
     try {
       const res = await postJSON("/api/auth/logout", { telegramId: telegramId ?? getTelegramId() });
@@ -306,6 +326,8 @@ export function useBot() {
     balance,
     accountEmail,
     isRealAccount,
+    hasRealDerivAccount,
+    hasDemoDerivAccount,
     sessionProfit,
     dailyTradesCount,
     consecutiveLosses,
@@ -333,6 +355,7 @@ export function useBot() {
     signup,
     logout,
     switchToDemo,
-    switchToDeriv
+    switchToDeriv,
+    switchDerivAccountType
   };
 }

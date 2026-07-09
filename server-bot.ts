@@ -205,6 +205,10 @@ class ServerBot {
   // WebSocket reference
   private ws: WebSocket | null = null;
   private derivWsUrl: string | null = null;
+  // Both linked Deriv accounts found on the token's account list (if present), so the
+  // user can switch between real and demo without re-entering their token.
+  private derivRealAccount: { accountId: string; currency: string } | null = null;
+  private derivDemoAccount: { accountId: string; currency: string } | null = null;
   private reconnectInterval: NodeJS.Timeout | null = null;
   private silenceCheckInterval: NodeJS.Timeout | null = null;
 
@@ -416,36 +420,32 @@ class ServerBot {
         return { success: false, error: "No accounts found for this token." };
       }
 
-      // Use first account (demo preferred, else real)
-      const demoAccount = accounts.find((a: any) => a.account_type === "demo") ?? accounts[0];
-      const accountId = demoAccount.account_id || demoAccount.loginid;
-      const email = demoAccount.email || accounts[0].email || "user@deriv.com";
-      const isVirtual = demoAccount.account_type === "demo" || demoAccount.is_virtual;
+      // Store both linked accounts (if present) so the user can switch between
+      // real and demo later without re-entering their token.
+      const realAcct = accounts.find((a: any) => a.account_type !== "demo" && !a.is_virtual) ?? null;
+      const demoAcct = accounts.find((a: any) => a.account_type === "demo" || a.is_virtual) ?? null;
+      this.derivRealAccount = realAcct ? { accountId: realAcct.account_id || realAcct.loginid, currency: realAcct.currency || "USD" } : null;
+      this.derivDemoAccount = demoAcct ? { accountId: demoAcct.account_id || demoAcct.loginid, currency: demoAcct.currency || "USD" } : null;
+
+      // Prefer the REAL (non-demo) account so connecting via "Deriv Account" actually
+      // trades with real funds. Only fall back to a demo account if no real account
+      // exists on this token.
+      const selectedAccount = realAcct ?? demoAcct ?? accounts[0];
+      const accountId = selectedAccount.account_id || selectedAccount.loginid;
+      const email = selectedAccount.email || accounts[0].email || "user@deriv.com";
+      const isVirtual = selectedAccount.account_type === "demo" || selectedAccount.is_virtual;
 
       // Step 2: Get OTP WebSocket URL
-      const otpRes = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token.trim()}`,
-          "Deriv-App-ID": clientId,
-        },
-      });
-
-      if (!otpRes.ok) {
-        // Fallback to old WebSocket method if OTP fails
-        return this.loginWithTokenLegacy(token);
-      }
-
-      const otpData = await otpRes.json();
-      const wsUrl = otpData?.data?.url;
+      const wsUrl = await this.fetchOtpWsUrl(accountId, token, clientId);
 
       if (!wsUrl) {
+        // Fallback to old WebSocket method if OTP fails
         return this.loginWithTokenLegacy(token);
       }
 
       // Store the WS URL and account info for connectWebSocket
       this.derivWsUrl = wsUrl;
-      this.accountCurrency = demoAccount.currency || "USD";
+      this.accountCurrency = selectedAccount.currency || "USD";
       this.completeTokenLogin(email, token.trim(), !isVirtual);
 
       return { success: true, email };
@@ -457,6 +457,59 @@ class ServerBot {
   }
 
   // Legacy login using old binaryws WebSocket (fallback)
+  private async fetchOtpWsUrl(accountId: string, token: string, clientId: string): Promise<string | null> {
+    try {
+      const otpRes = await fetch(`https://api.derivws.com/trading/v1/options/accounts/${accountId}/otp`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token.trim()}`,
+          "Deriv-App-ID": clientId,
+        },
+      });
+      if (!otpRes.ok) return null;
+      const otpData = await otpRes.json();
+      return otpData?.data?.url ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Switch between the real and demo Deriv accounts linked to the currently connected
+   * token, without requiring the user to re-enter their API token.
+   */
+  public async switchDerivAccountType(targetType: "real" | "demo"): Promise<{ success: boolean; error?: string }> {
+    const target = targetType === "real" ? this.derivRealAccount : this.derivDemoAccount;
+    if (!target) {
+      return { success: false, error: `No ${targetType} account linked to this token.` };
+    }
+    const token = this.config.apiToken;
+    if (!token) {
+      return { success: false, error: "Not connected to Deriv. Please log in first." };
+    }
+
+    const clientId = process.env.DERIV_CLIENT_ID || "33yYUuxyhTQPYawa2VVdV";
+    const wsUrl = await this.fetchOtpWsUrl(target.accountId, token, clientId);
+    if (!wsUrl) {
+      return { success: false, error: "Could not switch account. Try reconnecting your Deriv token." };
+    }
+
+    if (this.botState !== "STATE_IDLE" && this.botState !== "STATE_STOPPED") {
+      this.haltBot(`Switched Deriv account to ${targetType}`);
+    }
+    if (this.ws) {
+      try { this.ws.close(); } catch (_) {}
+      this.ws = null;
+    }
+
+    this.derivWsUrl = wsUrl;
+    this.accountCurrency = target.currency;
+    this.balance = null; // will repopulate from the new account's authorize response
+    this.connectWebSocket();
+
+    return { success: true };
+  }
+
   private async loginWithTokenLegacy(token: string): Promise<{ success: boolean; error?: string; email?: string }> {
     return new Promise((resolve) => {
       const url = `wss://ws.binaryws.com/websockets/v3?app_id=${this.config.appId || 1089}`;
@@ -716,6 +769,8 @@ class ServerBot {
       bankBalance: this.bankBalance,
       accountEmail: this.accountEmail,
       isRealAccount: this.isRealAccount,
+      hasRealDerivAccount: !!this.derivRealAccount,
+      hasDemoDerivAccount: !!this.derivDemoAccount,
       sessionProfit: this.sessionProfit,
       dailyTradesCount: this.dailyTradesCount,
       consecutiveLosses: this.consecutiveLosses,
@@ -1485,16 +1540,19 @@ class ServerBot {
     tieDetected: boolean;
     qualityScore: number;
   } {
-    const len = buffer.length;
+    // Match original app exactly: fixed 120-tick rolling window, not the full buffer
+    const rollingTicks = buffer.slice(-120);
+    const len = rollingTicks.length;
     if (len < 10) {
       return { predictionDigit: 0, triggerDigit: 1, predictionFreq: 0, triggerFreq: 0, winRate: null, triggerCount: 0, winCount: 0, triggerFired: false, tieDetected: false, qualityScore: 0 };
     }
 
-    // Count frequencies
+    // Count frequencies over the 120-tick window
     const counts = Array(10).fill(0);
-    buffer.forEach(d => { if (d >= 0 && d <= 9) counts[d]++; });
+    rollingTicks.forEach(d => { if (d >= 0 && d <= 9) counts[d]++; });
 
-    // Sort digits by frequency descending
+    // Sort digits by frequency descending (stable sort preserves ascending digit order on ties,
+    // matching the original's explicit "lowest digit wins tie" rule)
     const sorted = Array.from({ length: 10 }, (_, i) => i)
       .sort((a, b) => counts[b] - counts[a]);
 
@@ -1503,16 +1561,19 @@ class ServerBot {
     const predictionFreq = Number(((counts[predictionDigit] / len) * 100).toFixed(1));
     const triggerFreq = Number(((counts[triggerDigit] / len) * 100).toFixed(1));
 
-    // Tie detection: top two share same count OR second and third share same count
-    const tieDetected = counts[sorted[0]] === counts[sorted[1]] || counts[sorted[1]] === counts[sorted[2]];
+    // Tie detection: original app rule ONLY — highest count === second-highest count.
+    // (Removed the extra "2nd vs 3rd" condition, which the original does not have and which
+    // was causing far more false pauses than the original ever produced.)
+    const tieDetected = counts[sorted[0]] === counts[sorted[1]];
 
-    // Historical backtest: count trigger appearances and how many were followed by prediction
+    // Historical backtest over the same 120-tick window (kept consistent with the window above;
+    // this backtest itself is our own addition for symbol ranking, not part of original firing logic)
     let triggerCount = 0;
     let winCount = 0;
-    for (let i = 0; i < buffer.length - 1; i++) {
-      if (buffer[i] === triggerDigit) {
+    for (let i = 0; i < rollingTicks.length - 1; i++) {
+      if (rollingTicks[i] === triggerDigit) {
         triggerCount++;
-        if (buffer[i + 1] === predictionDigit) winCount++;
+        if (rollingTicks[i + 1] === predictionDigit) winCount++;
       }
     }
 

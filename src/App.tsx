@@ -27,12 +27,13 @@ export default function App() {
   const {
     config, saveConfig, botState, activeSymbol,
     balance, accountEmail, isRealAccount,
+    hasRealDerivAccount, hasDemoDerivAccount,
     sessionProfit, dailyTradesCount, consecutiveLosses, multiplier,
     connectionStatus, reconnectCountdown, evenOddCooldownSkipsRemaining,
     symbolStates, toastHistory,
     tradeLogs, clearTradeLogs, sessionStats, showSummary, closeSummary,
     startBot, stopBot, resetDemoBalance,
-    currentUserEmail, login, logout, switchToDemo, switchToDeriv,
+    currentUserEmail, login, logout, switchToDemo, switchToDeriv, switchDerivAccountType,
   } = useBot();
 
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -266,7 +267,9 @@ export default function App() {
                   balance={balance} isRealAccount={isRealAccount} accountEmail={accountEmail}
                   apiToken={config.apiToken} telegramId={telegramId}
                   currentUserEmail={currentUserEmail}
+                  hasRealDerivAccount={hasRealDerivAccount} hasDemoDerivAccount={hasDemoDerivAccount}
                   onSwitchToDemo={switchToDemo} onSwitchToDeriv={switchToDeriv}
+                  onSwitchDerivAccountType={switchDerivAccountType}
                   onBalanceRefresh={() => {
                     fetch(`/api/bank/balance?telegramId=${telegramId}`)
                       .then((r) => r.json())

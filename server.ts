@@ -343,6 +343,19 @@ async function startServer() {
     res.json({ ...result, state: bot.getFullState() });
   });
 
+  // Switch between the real and demo Deriv account linked to the same token —
+  // does not require re-entering the API token.
+  app.post("/api/auth/switch-deriv-account-type", async (req, res) => {
+    const bot = getBot(req);
+    const { accountType } = req.body; // "real" | "demo"
+    if (accountType !== "real" && accountType !== "demo") {
+      return res.json({ success: false, error: "accountType must be 'real' or 'demo'." });
+    }
+    const result = await bot.switchDerivAccountType(accountType);
+    res.json({ ...result, state: bot.getFullState() });
+  });
+
+
   // ── Reserved Bank ─────────────────────────────────────────────────────────────
 
   app.get("/api/bank/balance", async (req, res) => {

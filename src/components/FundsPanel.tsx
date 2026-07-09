@@ -7,14 +7,17 @@ interface FundsPanelProps {
   apiToken: string;
   telegramId: string;
   currentUserEmail: string | null;
+  hasRealDerivAccount: boolean;
+  hasDemoDerivAccount: boolean;
   onSwitchToDemo: () => Promise<any>;
   onSwitchToDeriv: () => Promise<any>;
+  onSwitchDerivAccountType: (accountType: "real" | "demo") => Promise<any>;
   onBalanceRefresh: () => void;
 }
 
 type Status = "idle" | "loading" | "success" | "error";
 
-export default function FundsPanel({ balance, isRealAccount, accountEmail, telegramId, currentUserEmail, onSwitchToDemo, onSwitchToDeriv, onBalanceRefresh }: FundsPanelProps) {
+export default function FundsPanel({ balance, isRealAccount, accountEmail, telegramId, currentUserEmail, hasRealDerivAccount, hasDemoDerivAccount, onSwitchToDemo, onSwitchToDeriv, onSwitchDerivAccountType, onBalanceRefresh }: FundsPanelProps) {
   const [bankBalance, setBankBalance] = useState<number>(0);
   const [transferAmount, setTransferAmount] = useState("");
   const [transferDirection, setTransferDirection] = useState<"toBank" | "fromBank">("toBank");
@@ -23,6 +26,8 @@ export default function FundsPanel({ balance, isRealAccount, accountEmail, teleg
   const [transferLoading, setTransferLoading] = useState(false);
   const [switchLoading, setSwitchLoading] = useState(false);
   const [switchMessage, setSwitchMessage] = useState("");
+  const [accountTypeLoading, setAccountTypeLoading] = useState(false);
+  const [accountTypeMessage, setAccountTypeMessage] = useState("");
 
   const isOnDeriv = !!currentUserEmail;
   const actualBalance = parseFloat(balance ?? "0");
@@ -48,6 +53,17 @@ export default function FundsPanel({ balance, isRealAccount, accountEmail, teleg
       onBalanceRefresh();
     } catch { setSwitchMessage("Switch failed. Please try again."); }
     finally { setSwitchLoading(false); setTimeout(() => setSwitchMessage(""), 3000); }
+  }
+
+  async function handleAccountTypeSwitch(type: "real" | "demo") {
+    if (type === (isRealAccount ? "real" : "demo")) return;
+    setAccountTypeLoading(true); setAccountTypeMessage("");
+    try {
+      const res = await onSwitchDerivAccountType(type);
+      setAccountTypeMessage(res.success ? `Switched to ${type === "real" ? "Real" : "Demo"} account.` : (res.error ?? "Switch failed."));
+      onBalanceRefresh();
+    } catch { setAccountTypeMessage("Switch failed. Please try again."); }
+    finally { setAccountTypeLoading(false); setTimeout(() => setAccountTypeMessage(""), 3000); }
   }
 
   async function handleTransfer() {
@@ -125,6 +141,39 @@ export default function FundsPanel({ balance, isRealAccount, accountEmail, teleg
           <p className={`text-[11px] text-center font-medium ${switchMessage.includes("failed") ? "text-error" : "text-success"}`}>{switchMessage}</p>
         )}
         {switchLoading && <p className="text-[11px] text-center text-[#775a19]">Switching…</p>}
+
+        {/* Real vs Demo Deriv account switch — only shown when both are linked to this token */}
+        {isOnDeriv && hasRealDerivAccount && hasDemoDerivAccount && (
+          <div className="flex flex-col gap-2 mt-1">
+            <p className="text-[10px] font-bold text-[#4e4639] uppercase tracking-widest">DERIV ACCOUNT TYPE</p>
+            <div className="flex p-1 bg-[#efe7de] rounded-xl border border-[#d1c5b4]">
+              <button
+                type="button"
+                onClick={() => handleAccountTypeSwitch("real")}
+                disabled={accountTypeLoading}
+                className={`flex-1 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all cursor-pointer disabled:opacity-50 ${
+                  isRealAccount ? "bg-white text-success shadow-sm border border-[#d1c5b4]" : "text-[#4e4639] opacity-60"
+                }`}
+              >
+                Real
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAccountTypeSwitch("demo")}
+                disabled={accountTypeLoading}
+                className={`flex-1 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all cursor-pointer disabled:opacity-50 ${
+                  !isRealAccount ? "bg-white text-[#775a19] shadow-sm border border-[#d1c5b4]" : "text-[#4e4639] opacity-60"
+                }`}
+              >
+                Demo
+              </button>
+            </div>
+            {accountTypeMessage && (
+              <p className={`text-[11px] text-center font-medium ${accountTypeMessage.includes("failed") || accountTypeMessage.includes("No ") ? "text-error" : "text-success"}`}>{accountTypeMessage}</p>
+            )}
+            {accountTypeLoading && <p className="text-[11px] text-center text-[#775a19]">Switching account…</p>}
+          </div>
+        )}
       </div>
 
       {/* Balance cards */}

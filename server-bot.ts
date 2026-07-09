@@ -1147,7 +1147,13 @@ class ServerBot {
     }
 
     else if (data.error) {
-      console.warn("Client WS Error payload returned: ", data.error);
+      const failedSymbol = data.echo_req?.ticks_history;
+      if (failedSymbol) {
+        this.showToast(`${failedSymbol}: ${data.error.message || "Subscription failed"}`, "red");
+        console.warn(`[${failedSymbol}] Tick subscription error:`, data.error);
+      } else {
+        console.warn("Client WS Error payload returned: ", data.error);
+      }
     }
   }
 

@@ -214,7 +214,7 @@ class ServerBot {
   private silenceCheckInterval: NodeJS.Timeout | null = null;
 
   // Trade tracking refs equivalent
-  private pendingRealContract: { id: number | string; symbol: string; stake: number; seq: number; under_pct?: number; signal_strength?: string; direction?: "EVEN" | "ODD" } | null = null;
+  private pendingRealContract: { id: number | string; symbol: string; stake: number; seq: number; under_pct?: number; signal_strength?: string; direction?: "EVEN" | "ODD"; target_digit?: number } | null = null;
   private pendingVirtualContract: { symbol: string; stake: number; barrier: number; multiplier: number; seq: number; timestamp: string; under_pct?: number; signal_strength?: string; direction?: "EVEN" | "ODD" } | null = null;
   // Even/Odd strategy: holds a fired pattern signal until processEvenOddMachine consumes it
   private pendingEvenOddSignal: { symbol: string; direction: "EVEN" | "ODD" } | null = null;
@@ -1813,7 +1813,8 @@ class ServerBot {
           stake: computedStake,
           seq: this.sequenceDone,
           under_pct: qualityScore,
-          signal_strength: `Q${qualityScore}% C${confidence.toFixed(0)}%`
+          signal_strength: `Q${qualityScore}% C${confidence.toFixed(0)}%`,
+          target_digit: dominantDigit
         };
 
         this.ws.send(JSON.stringify({
@@ -2811,11 +2812,9 @@ class ServerBot {
 
     // DigitMatch real trades
     if (this.config.strategy === "digitmatch") {
-      const targetDigit = savedContract?.under_pct !== undefined
-        ? this.pendingVirtualContract?.barrier ?? 0
-        : 0;
-      // For real trades, barrier is the target digit stored in proposal
-      const dmTargetDigit = Number(savedContract?.signal_strength?.match(/\d+/)?.[0] ?? 0);
+      // Use the digit actually stored at trade-entry time — do not parse it back out
+      // of the "Q92% C88%" display label, which yields the quality score, not the digit.
+      const dmTargetDigit = savedContract?.target_digit ?? 0;
       this.processDigitMatchOutcome(
         isWin ? "WIN" : "LOSS",
         symbol,

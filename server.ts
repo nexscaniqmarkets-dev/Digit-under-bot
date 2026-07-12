@@ -181,8 +181,21 @@ async function startServer() {
 
   app.post("/api/auth/login", async (req, res) => {
     const bot = getBot(req);
-    const { token } = req.body;
+    const { token, telegramId } = req.body;
     const result = await bot.loginWithToken(token);
+    // Persist the session so returning to the app restores Deriv instead of
+    // silently falling back to the sandbox balance (this route previously only
+    // authenticated in-memory and never saved anything for auto-login to find).
+    if (result.success && telegramId) {
+      await saveSession(String(telegramId), token);
+      if (sessionsCollection) {
+        sessionsCollection.updateOne(
+          { telegramId: String(telegramId) },
+          { $set: { lastMode: "deriv" } },
+          { upsert: true }
+        ).catch(() => {});
+      }
+    }
     res.json({ ...result, state: bot.getFullState() });
   });
 

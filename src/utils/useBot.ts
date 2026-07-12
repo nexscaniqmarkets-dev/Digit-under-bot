@@ -57,11 +57,22 @@ export function useBot() {
   const toastsRef = useRef<ToastMessage[]>([]);
   toastsRef.current = toasts;
 
+  // Cache the resolved user ID once it's confirmed, so a transient blip in
+  // window.Telegram.WebApp.initDataUnsafe.user (e.g. on backgrounding/WebView
+  // reload) can never cause a mid-session call to silently fall back to a
+  // different (always-sandbox) bot instance keyed on a fresh web UUID.
+  const resolvedTelegramIdRef = useRef<string | null>(null);
+
   // Get user ID — Telegram ID for Telegram users, or a persistent UUID for web users
   const getTelegramId = (): string => {
+    if (resolvedTelegramIdRef.current) return resolvedTelegramIdRef.current;
+
     try {
       const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-      if (tgId) return String(tgId);
+      if (tgId) {
+        resolvedTelegramIdRef.current = String(tgId);
+        return resolvedTelegramIdRef.current;
+      }
     } catch {}
 
     // Web user — use a persistent UUID stored in localStorage
@@ -70,6 +81,11 @@ export function useBot() {
       webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
       localStorage.setItem("digit_bot_web_uid", webId);
     }
+    // NOTE: intentionally NOT cached into resolvedTelegramIdRef here — if Telegram's
+    // user id genuinely isn't available yet (very early in the session, before
+    // detectTg's retry loop resolves it), we want the NEXT call to check again
+    // rather than permanently locking in the web fallback. Once a real Telegram
+    // id is found above, it's cached permanently and this branch is never reached again.
     return webId;
   };
 

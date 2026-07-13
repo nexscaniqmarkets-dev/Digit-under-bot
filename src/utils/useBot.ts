@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: BotConfig = {
   demoMode: true
 };
 
-export function useBot() {
+export function useBot(externalTelegramId?: string | null) {
   const [config, setConfig] = useState<BotConfig>(DEFAULT_CONFIG);
   const [botState, setBotState] = useState<BotState>("STATE_IDLE");
   const [activeSymbol, setActiveSymbol] = useState<string | null>(null);
@@ -65,6 +65,17 @@ export function useBot() {
 
   // Get user ID — Telegram ID for Telegram users, or a persistent UUID for web users
   const getTelegramId = (): string => {
+    // Always prefer the id resolved by App.tsx's reliable retry-based detection.
+    // This function used to independently re-check window.Telegram.WebApp on every
+    // call with no wait, which raced App.tsx's detection loop: if this fired first
+    // (very common — this hook's polling effect used to start on mount, before
+    // Telegram's WebView finished populating initDataUnsafe.user), it would lock
+    // onto a throwaway web UUID forever, permanently routing every request to a
+    // different, always-sandbox bot instance instead of the user's real one.
+    if (externalTelegramId) {
+      resolvedTelegramIdRef.current = externalTelegramId;
+      return externalTelegramId;
+    }
     if (resolvedTelegramIdRef.current) return resolvedTelegramIdRef.current;
 
     try {
@@ -81,11 +92,9 @@ export function useBot() {
       webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
       localStorage.setItem("digit_bot_web_uid", webId);
     }
-    // NOTE: intentionally NOT cached into resolvedTelegramIdRef here — if Telegram's
-    // user id genuinely isn't available yet (very early in the session, before
-    // detectTg's retry loop resolves it), we want the NEXT call to check again
-    // rather than permanently locking in the web fallback. Once a real Telegram
-    // id is found above, it's cached permanently and this branch is never reached again.
+    // NOTE: intentionally NOT cached into resolvedTelegramIdRef here — if the real
+    // id genuinely isn't available yet, we want the NEXT call to check again
+    // rather than permanently locking in the web fallback.
     return webId;
   };
 
@@ -311,6 +320,12 @@ export function useBot() {
 
   // Main background syncing cycle
   useEffect(() => {
+    // Don't start polling until App.tsx's reliable Telegram-id detection has
+    // resolved (or explicitly fallen back to a web id). Starting earlier is
+    // exactly what caused requests to race ahead of detection and lock onto
+    // the wrong bot instance.
+    if (!externalTelegramId) return;
+
     // Note: session/balance restoration is handled sequentially in App.tsx
     // to avoid race conditions between auto-login and sandbox restore
 
@@ -332,7 +347,7 @@ export function useBot() {
       clearInterval(intervalFast);
       clearInterval(intervalToasts);
     };
-  }, []);
+  }, [externalTelegramId]);
 
   return {
     config,

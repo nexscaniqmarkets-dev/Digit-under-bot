@@ -24,6 +24,11 @@ const NAV_TABS: { id: Tab; label: string; icon: string }[] = [
 ];
 
 export default function App() {
+  // Resolved once by the Telegram-detection effect below (real Telegram id, or a
+  // persistent web-fallback id) — this is the single source of truth passed into
+  // useBot so it never independently re-derives (and potentially races) its own id.
+  const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
+
   const {
     config, saveConfig, botState, activeSymbol,
     balance, accountEmail, isRealAccount,
@@ -34,7 +39,7 @@ export default function App() {
     tradeLogs, clearTradeLogs, sessionStats, showSummary, closeSummary,
     startBot, stopBot, resetDemoBalance,
     currentUserEmail, login, logout, switchToDemo, switchToDeriv, switchDerivAccountType,
-  } = useBot();
+  } = useBot(resolvedUserId);
 
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [bypassAuth, setBypassAuth] = useState(false);
@@ -45,7 +50,7 @@ export default function App() {
   const [lastOpenedLength, setLastOpenedLength] = useState(0);
   const [inspectSymbol, setInspectSymbol] = useState("1HZ100V");
 
-  const telegramId = telegramUser?.id ? String(telegramUser.id) : "default";
+  const telegramId = resolvedUserId ?? "default";
   const actualBalance = balance ? parseFloat(balance) : null;
   const availableBalance =
     actualBalance !== null
@@ -107,13 +112,13 @@ export default function App() {
         } catch {}
         if (wa.initDataUnsafe?.user) {
           const u = wa.initDataUnsafe.user;
-          setTelegramUser(u); setBypassAuth(true); runRestore(String(u.id)); return;
+          setTelegramUser(u); setBypassAuth(true); setResolvedUserId(String(u.id)); runRestore(String(u.id)); return;
         }
         if (attempts > 0) { setTimeout(() => detectTg(attempts - 1), 150); return; }
       }
       let webId = localStorage.getItem("digit_bot_web_uid");
       if (!webId) { webId = "web_" + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("digit_bot_web_uid", webId); }
-      setBypassAuth(true); runRestore(webId);
+      setBypassAuth(true); setResolvedUserId(webId); runRestore(webId);
     };
     detectTg(10);
   }, []);
